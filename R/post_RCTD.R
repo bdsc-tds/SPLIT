@@ -1,10 +1,20 @@
 #' Updates `score_mat` of the `Run.RCTD` output
 #'
-#' Adds `singlet_scores` as a diagonal and removes cell types with a low weight in full cell-type decomposition
+#' Adds `singlet_scores` as a diagonal and removes cell types with a low weight in full cell-type decomposition.
 #'
-#'@param rctd output of \link[spacerx]{Run.RCTD}
-#'@param min_weight threshold to keep cell type as a candidate
+#' This function modifies the `score_mat` by adding `singlet_scores` as a diagonal matrix and removes cell types
+#' from the candidate list if their corresponding weight is below a user-defined threshold. The updated
+#' `score_mat` and `singlet_scores` are saved in the `rctd` object.
 #'
+#' @param rctd An object resulting from \link[spacerx]{Run.RCTD}.
+#' @param min_weight A threshold (numeric) to keep cell types as candidates. Cell types with a weight below this
+#'        threshold are removed from the `score_mat`. Default is 0.01, which is the same as in `Run.RCTD`.
+#' @param verbose Logical. If `TRUE`, the function will print messages about removed low-weight cell types.
+#'        Default is `FALSE`.
+#'
+#' @return An updated `rctd` object with modified `score_mat` and `singlet_scores`.
+#'
+
 
 update_score_mat_RCTD <- function(
     rctd,
@@ -64,6 +74,8 @@ update_score_mat_RCTD <- function(
 #' rctd <- update_score_mat(rctd)
 #' rctd <- correct_singlets(rctd)
 #' }
+#'
+#' @import dplyr
 
 
 correct_singlets <- function(
@@ -135,89 +147,72 @@ correct_singlets <- function(
 #' The function refines singlet scores for `first_type` and `second_type`, computes score differences, and introduces new metrics such as `delta_singlet_score` and `delta_singlet_score_class`. These metrics help distinguish between highly confident cell types and ambiguous cases. Additionally, the function evaluates whether `first_type` and `second_type` belong to the same class, using an internal class mapping.
 #'
 
-
-
-update_scores_RCTD <- function(
-    rctd
-){
+update_scores_RCTD <- function(rctd){
 
   df <- rctd@results$results_df_xe
 
-  # singlet_score -> singlet_score_first type (the original one does not always correspond to the singlet_score[first_type]. It happens in two cases: (i) reject, (ii) )
-  # delta_singlet_score_first_second - difference between singlet score of the first and the second cell type
+  # Ensure first_type and second_type are available in the data frame
   df <- df %>% mutate(
     singlet_score_first = sapply(1:nrow(df), function(i) {
-      ft <- first_type[i] %>% as.vector()
+      ft <- df$first_type[i] %>% as.vector()
       return(rctd@results$singlet_scores[[i]][ft])
-    }
-    ),
+    }),
     singlet_score_second = sapply(1:nrow(df), function(i) {
-      st <- second_type[i] %>% as.vector()
-      if(is.na(st))
-        return(NA)
+      st <- df$second_type[i] %>% as.vector()
+      if (is.na(st)) return(NA)
       return(rctd@results$singlet_scores[[i]][st])
-    }
-    ),
-    delta_singlet_score_first_second = singlet_score_second-singlet_score_first
+    }),
+    delta_singlet_score_first_second = singlet_score_second - singlet_score_first
   )
 
-
-  # score_diff - update to be consistent with the new singlet_score
-
+  # Update score_diff to be consistent with the new singlet_score
   df <- df %>% mutate(
-    score_diff = singlet_score_first - min_score, # use this one
-    score_diff_old = singlet_score - min_score, # keep this to keep track
-    delta_singlet_score_original_first_class = singlet_score_first - singlet_score   # difference between singlet_score produces by rctd and singlet_score_first
+    score_diff = df$singlet_score_first - df$min_score,  # Use this one
+    score_diff_old = df$singlet_score - df$min_score,  # Keep this to track
+    delta_singlet_score_original_first_class = singlet_score_first - singlet_score  # Difference between singlet_score and singlet_score_first
   )
 
-  # first_weight, second_weight
+  # Add weight_first_type, weight_second_type
   df <- df %>% mutate(
     weight_first_type = rctd@results$weights_doublet[,"first_type"],
-    weight_second_type = rctd@results$weights_doublet[,"second_type"],
+    weight_second_type = rctd@results$weights_doublet[,"second_type"]
   )
 
-  # delta_singlet_score - difference between min singlet score (does not necessary corresponds to the first_type) and second min
+  # Calculate delta_singlet_score: difference between first and second smallest singlet scores
   sorted_singlet_scores <- sapply(rctd@results$singlet_scores, FUN = function(x) sort(x, decreasing = F))
-  delta_singlet_score <- sapply(
-    sorted_singlet_scores,
-    FUN = function(x){
-      if(length(x) == 1)
-        return(Inf)
-      return(x[2] - x[1])
-    })
+  delta_singlet_score <- sapply(sorted_singlet_scores, FUN = function(x) {
+    if (length(x) == 1) return(Inf)
+    return(x[2] - x[1])
+  })
   df$delta_singlet_score <- delta_singlet_score
 
-  # delta_singlet_score_class (ignore same class elements when computing delta score)
+  # Calculate delta_singlet_score_class (ignore same class elements when computing delta score)
   sorted_singlet_scores_class <- sapply(sorted_singlet_scores, function(x) {
     class_vec <- rctd@internal_vars$class_df[names(x), "class"]
-    # keep elements, such that their class != class[1]
-    mask <- class_vec !=  class_vec[1]
-    mask[1] <- TRUE # keep the first element
+    mask <- class_vec != class_vec[1]  # Keep elements where their class != class[1]
+    mask[1] <- TRUE  # Keep the first element
     return(x[mask])
   })
 
-  delta_singlet_score_class <-  sapply(
-    sorted_singlet_scores_class,
-    FUN = function(x){
-      if(length(x) == 1)
-        return(0)
-      return(x[2] - x[1])
-    })
+  delta_singlet_score_class <- sapply(sorted_singlet_scores_class, FUN = function(x) {
+    if (length(x) == 1) return(0)
+    return(x[2] - x[1])
+  })
 
   df$delta_singlet_score_class <- delta_singlet_score_class
 
-  # check whether first type and second type are coming from the same class
+  # Check whether first_type and second_type come from the same class
   df <- df %>%
     mutate(
-      first_type_class = rctd@internal_vars$class_df[first_type %>% as.vector(), "class"] %>% as.factor(),
-      second_type_class = rctd@internal_vars$class_df[second_type %>% as.vector(), "class"] %>% as.factor(),
+      first_type_class = rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"] %>% as.factor(),
+      second_type_class = rctd@internal_vars$class_df[df$second_type %>% as.vector(), "class"] %>% as.factor(),
       same_class = first_type_class == second_type_class
     )
 
   rctd@results$results_df_xe <- df
   return(rctd)
-
 }
+
 
 #' Normalize `score_diff` to Compensate for Feature Count and Update `spot_class`
 #'
@@ -421,15 +416,19 @@ run_post_process_RCTD <- function(
     nFeature = NULL,
     nCount = NULL
 ){
+  message("Updating score_mat ...")
   rctd <- update_score_mat_RCTD(
     rctd = rctd,
     min_weight = min_weight
   )
 
+  message("Correcting singlets ...")
   rctd <- correct_singlets(rctd = rctd)
 
+  message("Updating scores ...")
   rctd <- update_scores_RCTD(rctd = rctd)
 
+  message("Normalizing score_diff by nFeature ...")
   rctd <- normalize_score_diff_by_nFeature(
     rctd = rctd,
     nFeature_doublet_threshold = nFeature_doublet_threshold,
@@ -437,12 +436,16 @@ run_post_process_RCTD <- function(
     nCount = nCount
   )
 
+  message("Computing alternative annotations ...")
   rctd <- compute_alternative_annotations(rctd)
 
-  rctd <- compute_annotation_entropy(rctd)
+  #message("Computing annotation entropy ...")
+  #rctd <- compute_annotation_entropy(rctd)
 
-  rtrd <- compute_annotation_confidence(rctd)
+  #message("Computing annotation confidence ...")
+  #rtrd <- compute_annotation_confidence(rctd)
 
+  message("Replacing results_df ...")
   # store the old results to keep track and replace them with the new ones
   rctd@results$results_df_old <- rctd@results$results_df
   rctd@results$results_df <- rctd@results$results_df_xe
