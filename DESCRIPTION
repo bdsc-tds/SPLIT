@@ -1,0 +1,37 @@
+Package: puRCTD
+Type: Package
+Title: Purifies single-cell spatial transcriptomics data using RCTD output
+Version: 0.1.0
+Authors@R: c(
+    person(
+      "Mariia", "Bilous",
+      email = "Mariia.Bilous@chuv.ch",
+      role = c("aut", "cre")
+    )
+  )
+Description: 
+    The 'puRCTD' package provides tools for purifying spatial transcriptomics data 
+    derived from the RCTD (Robust Cell Type Decomposition) algorithm. 
+    It offers a series of functions to enhance the accuracy of cell-type annotations, 
+    handle noisy data, and improve the overall interpretation of single-cell spatial 
+    expression profiles by performing data normalization, entropy analysis, and 
+    annotation confidence scoring. 
+
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.0.0)
+Imports:
+    Matrix,
+    dplyr,
+    forcats,
+    entropy,
+    tidyr,
+    RCTD,
+    ggplot2
+Suggests:
+    testthat,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+
