@@ -16,22 +16,22 @@ Description:
     handle noisy data, and improve the overall interpretation of single-cell spatial 
     expression profiles by performing data normalization, entropy analysis, and 
     annotation confidence scoring. 
-
-License: MIT + file LICENSE
+License: MIT
 Encoding: UTF-8
 LazyData: true
 Depends: R (>= 4.0.0)
 Imports:
     Matrix,
     dplyr,
+    magrittr,
     forcats,
     entropy,
     tidyr,
-    RCTD,
+    spacexr,
     ggplot2
 Suggests:
     testthat,
     knitr,
     rmarkdown
 VignetteBuilder: knitr
-
+RoxygenNote: 7.3.2
