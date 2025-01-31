@@ -52,3 +52,4 @@ dev/
 # Other directories and files
 .DS_Store
 Thumbs.db
+.Rproj.user

@@ -64,6 +64,8 @@ update_score_mat_RCTD <- function(
 #'   \item \code{spot_class}: Updated to "singlet" for highly confident cells.
 #'   \item \code{max_doublet_weight}: Added to capture the maximum weight for doublets.
 #'   \item \code{n_candidates}: Number of candidate cell types for each spot.
+#'   \item \code{rctd_weights_entropy}: Entropy of rctd weights in full cell-type decomposition.
+#'
 #' }
 #'
 #' @details
@@ -100,7 +102,7 @@ correct_singlets <- function(
   first_type_updated <- rctd@results$results_df$first_type
   first_type_updated[confident_singlet_idx] <- argmin_singlet_score[confident_singlet_idx]
 
-  # replace second type with NA as now RCTD assigns it to a fandom cell type (usually the first of the available cell types)
+  # replace second type with NA as now RCTD assigns it to a random cell type (usually the first of the available cell types)
   second_type_updated <- rctd@results$results_df$second_type
   second_type_updated[confident_singlet_idx] <- NA_character_
 
@@ -110,13 +112,20 @@ correct_singlets <- function(
   spot_class_upd <- ordered(spot_class_upd, levels = c("reject", "doublet_uncertain", "doublet_certain", "singlet"))
   max_doublet_weight <- apply(rctd@results$weights_doublet, 1, max)
 
+  # compute entropy of rctd weight score
+  weights <- rctd@results$weights
+  weights[weights<0] <- 0
+  weights <- spacexr::normalize_weights(weights)
+  weights_entr <- apply(weights, 1, entropy::entropy)
+
   df <- rctd@results$results_df %>%
     mutate(
       first_type = first_type_updated,
       second_type = second_type_updated,
       max_doublet_weight = max_doublet_weight,
       spot_class = spot_class_upd,
-      n_candidates = len_mat
+      n_candidates = len_mat,
+      rctd_weights_entropy = weights_entr
     )
 
   rctd@results$results_df_xe <- df
@@ -304,7 +313,8 @@ compute_alternative_annotations <- function(rctd){
     mutate(
       annot_min_singlet_score = annot_min_singlet_score,
       annot_max_weight = annot_max_weight,
-      annot_max_doublet_weight = annot_max_doublet_weight
+      annot_max_doublet_weight = annot_max_doublet_weight,
+      w1_larger_w2 = first_type == annot_max_doublet_weight
     )
   return(rctd)
 }
@@ -427,6 +437,10 @@ run_post_process_RCTD <- function(
 
   message("Updating scores ...")
   rctd <- update_scores_RCTD(rctd = rctd)
+
+  message("Add coordinates to results ...")
+  rctd@results$results_df_xe$x <- rctd@spatialRNA@coords[rownames(rctd@results$results_df_xe), "x"]
+  rctd@results$results_df_xe$y <- rctd@spatialRNA@coords[rownames(rctd@results$results_df_xe), "y"]
 
   message("Normalizing score_diff by nFeature ...")
   rctd <- normalize_score_diff_by_nFeature(

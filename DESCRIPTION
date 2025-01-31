@@ -28,7 +28,8 @@ Imports:
     entropy,
     tidyr,
     spacexr,
-    ggplot2
+    ggplot2,
+    scatterpie
 Suggests:
     testthat,
     knitr,
