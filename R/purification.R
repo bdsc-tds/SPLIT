@@ -89,11 +89,19 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
       type1 <- as.vector(results_df[barcode, "first_type"])
       type2 <- as.vector(results_df[barcode, "second_type"])
 
+      w1 <- as.vector(results_df[barcode, "weight_first_type"])
+      w2 <- as.vector(results_df[barcode, "weight_second_type"])
+
       if(is.na(type2)){ # highly confident singlet -> Do Not Purify!
         return(list(barcode = barcode, res = bead))
       }
 
-      wgts <- ct_weights[barcode, c(type1, type2)]
+      if(is.na(w2)){
+        w1 <- 1
+        w2 <- 0
+      }
+
+      wgts <- c(w1, w2)
       wgts <- wgts / sum(wgts)
 
       names(wgts) <- c(type1, type2)
