@@ -87,11 +87,17 @@ add_infiltration_metrics_to_neighborhood <- function(neighborhood) {
   neighborhood$annotated_neighbors_N <- rowSums(!is.na(neighborhood$first_type)) - 1
 
   # Compute total number of singlet neighbors
-  neighborhood$total_singlets_neighbors_N <- rowSums(neighborhood$spot_class == "singlet")
+  neighborhood$total_singlets_neighbors_N <- rowSums(neighborhood$spot_class == "singlet", na.rm = TRUE)
+
+  ## Generate vector of annotation of cell's neighbors ignoring reject cells
+  neighborhood$first_type_no_reject <- neighborhood$first_type
+  neighborhood$first_type_no_reject[neighborhood$spot_class == "reject"] <- "NA"
 
   # Create first_type_fist_element_second_type (with first element as second_type)
   # to facilitate identification of the number of the second cell type in the neighborhood
   neighborhood$first_type_fist_element_second_type <- cbind(neighborhood$second_type[, 1], neighborhood$first_type[, -1])
+  neighborhood$first_type_fist_element_second_type_no_reject <- cbind(neighborhood$second_type[, 1], neighborhood$first_type_no_reject[, -1])
+
 
   # Helper function to calculate neighbors for a given type
   get_neighbors <- function(neighborhood_col) {
@@ -105,6 +111,9 @@ add_infiltration_metrics_to_neighborhood <- function(neighborhood) {
   # SECOND type neighbors: indices where neighbors are annotated to the residual second type
   neighborhood$second_type_neighbors <- get_neighbors(neighborhood$first_type_fist_element_second_type)
   neighborhood$second_type_neighbors_N <- sapply(neighborhood$second_type_neighbors, length)
+
+  neighborhood$second_type_neighbors_no_reject <- get_neighbors(neighborhood$first_type_fist_element_second_type_no_reject)
+  neighborhood$second_type_neighbors_no_reject_N <- sapply(neighborhood$second_type_neighbors_no_reject, length)
 
   # SECOND type singlet neighbors: neighbors annotated to the residual cell type and are singlets
   neighborhood$second_type_singlets_neighbors <- sapply(
@@ -227,10 +236,15 @@ add_cell_types_neighborhood_weights <- function(
     FUN = function(i){
       ft <- neighborhood$first_type[i,1]
       st <- neighborhood$second_type[i,1]
+
       if(!is.na(st)){
         neighborhood_weights <- c(neighborhood$neighborhood_weight_composition[i,ft], neighborhood$neighborhood_weight_composition[i, st])
       } else{
-        neighborhood_weights <- c(neighborhood$neighborhood_weight_composition[i, ft], 0)
+        if(!is.na(ft)){
+          neighborhood_weights <- c(neighborhood$neighborhood_weight_composition[i,ft], 0)
+        } else {
+          neighborhood_weights <- c(NA, NA)
+        }
       }
     }
   )
@@ -410,6 +424,51 @@ add_neigborhood_nCount_of_spilling_cell_type <- function(
 }
 
 
+#' Add Spatial Metrics to Neighborhood
+#'
+#' This function enhances a spatial neighborhood structure by integrating RCTD results and adding various spatial metrics.
+#' It incorporates infiltration metrics, weight compositions, and neighborhood count metrics, facilitating in-depth spatial analysis.
+#'
+#' @param spatial_neighborhood A list representing the spatial neighborhood data. It should include fields required for neighborhood and infiltration analysis.
+#' @param rctd An RCTD object containing cell type decomposition results.
+#'
+#' @return A modified spatial neighborhood list enriched with additional metrics, including:
+#' \itemize{
+#'   \item Infiltration metrics.
+#'   \item Weight composition of spilling cell types.
+#'   \item Sum of \code{nCount} values for neighborhood and spilling cell types.
+#' }
+#'
+#' @details This function sequentially:
+#' \enumerate{
+#'   \item Integrates RCTD results into the spatial neighborhood.
+#'   \item Calculates infiltration metrics based on cell type and class.
+#'   \item Computes the weight composition for spilling cell types.
+#'   \item Adds neighborhood \code{nCount} metrics for spilling cell types.
+#' }
+#'
+#' @seealso
+#' \itemize{
+#'   \item \code{\link{add_rctd_to_neighborhood}}: Integrates RCTD results into the neighborhood.
+#'   \item \code{\link{add_infiltration_metrics_to_neighborhood}}: Computes infiltration metrics.
+#'   \item \code{\link{add_neigborhood_weight_composition_of_spilling_cell_type}}: Adds weight composition for spilling cell types.
+#'   \item \code{\link{add_neigborhood_nCount_of_spilling_cell_type}}: Computes neighborhood \code{nCount} metrics.
+#' }
+#'
+#' @export
+#'
+
+
+add_spatial_metric <- function(spatial_neighborhood, rctd){
+
+  spatial_neighborhood <- add_rctd_to_neighborhood(graph = spatial_neighborhood, rctd = rctd)
+  spatial_neighborhood <- add_infiltration_metrics_to_neighborhood(neighborhood = spatial_neighborhood)
+  spatial_neighborhood <- add_neigborhood_weight_composition_of_spilling_cell_type(neighborhood = spatial_neighborhood)
+  spatial_neighborhood <- add_neigborhood_nCount_of_spilling_cell_type(neighborhood = spatial_neighborhood)
+  return(spatial_neighborhood)
+}
+
+
 #' Convert Neighborhood Analysis to Metadata
 #'
 #' This function extracts specific elements from a neighborhood list and
@@ -441,13 +500,8 @@ neighborhood_analysis_to_metadata <- function(
   var_names <- names(neighborhood)
   var_class <- lapply(neighborhood, function(x){class(x)[1]}) %>% unlist()
   is_vct    <- var_class[which(!var_class %in% c("matrix", "list", "igraph"))] %>% names()
-  is_mtx    <- var_class[which(var_class %in% c("matrix"))] %>% names()
 
-  for(var in is_mtx){
-    neighborhood[[var]] <- neighborhood[[var]][,1]
-  }
-
-  variables_to_keep <- c(is_vct, is_mtx)
+  variables_to_keep <- c(is_vct)
   neighborhood_df <- neighborhood[variables_to_keep]
   neighborhood_df <- as.data.frame(neighborhood_df, row.names = neighborhood_df$cell_id)
 
