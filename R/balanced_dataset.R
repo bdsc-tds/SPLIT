@@ -116,7 +116,7 @@ balance_raw_and_purified_data_by_spot_class <- function(
 
 
   xe_raw$purification_status <- "raw"
-  xe_raw@meta.data[cells_to_replace_with_purified,"purification_status"] <- "purified"
+  xe_raw@meta.data[cells_to_replace_with_purified,"purification_status"] <- xe_purified@meta.data[cells_to_replace_with_purified,"purification_status"]
   xe_raw@meta.data[cells_to_remove,"purification_status"] <- "removed"
 
   common_genes <- intersect(rownames(xe_raw), rownames(xe_purified))
