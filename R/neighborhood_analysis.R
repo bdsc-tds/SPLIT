@@ -469,6 +469,238 @@ add_spatial_metric <- function(spatial_neighborhood, rctd){
 }
 
 
+#' Annotate Transcriptomics Neighborhood with Dominant Cell Types
+#'
+#' This function annotates each neighborhood in a transcriptomics dataset by determining 
+#' the most frequent cell type (or class) for each neighborhood category (`first_type` and `second_type`).
+#'
+#' @param neighborhood A data frame or list containing neighborhood-level transcriptomics data. 
+#'        It must contain `first_type`, `second_type`, and optionally `first_type_class` and `second_type_class`.
+#'
+#' @return The updated `neighborhood` object with the following added columns:
+#'   \itemize{
+#'     \item `first_type_neighborhood`: The most frequent first type in the neighborhood.
+#'     \item `first_type_class_neighborhood`: The most frequent first type class in the neighborhood (if available).
+#'     \item `second_type_neighborhood`: The most frequent second type in the neighborhood.
+#'     \item `second_type_class_neighborhood`: The most frequent second type class in the neighborhood (if available).
+#'   }
+#'
+#' @details The function applies a helper function `find_most_frequent()` that determines 
+#' the most frequently occurring value in a given set of neighborhood annotations. If the `first_type_class`
+#' or `second_type_class` column is missing, a warning is issued, and the respective computation is skipped.
+#'
+#' @export
+#'
+add_annotation_from_neighbors <- function(neighborhood) {
+  
+  # Helper function to determine the most frequent annotation in a neighborhood
+  find_most_frequent <- function(values) {
+    value_counts <- values[-1]
+    most_frequent <- table(value_counts, useNA = "ifany") %>% which.max %>% names %>% .[1]
+    return(most_frequent)
+  }
+  
+  # Annotate first type neighborhood
+  neighborhood$first_type_neighborhood <- apply(
+    neighborhood$first_type,
+    1, 
+    find_most_frequent
+  )
+  
+  neighborhood$first_type_neighborhood_agreement <- neighborhood$first_type[,1] == neighborhood$first_type_neighborhood
+  
+  # Annotate first type class neighborhood if available
+  if ("first_type_class" %in% names(neighborhood)) {
+    neighborhood$first_type_class_neighborhood <- apply(
+      neighborhood$first_type_class,
+      1, 
+      find_most_frequent
+    )
+    
+    neighborhood$first_type_class_neighborhood_agreement <- neighborhood$first_type_class[,1] == neighborhood$first_type_class_neighborhood
+    
+  } else {
+    warning("`first_type_class` does not exist in the neighborhood object, `first_type_class_neighborhood` was not computed")
+  }
+  
+  # Annotate second type neighborhood
+  neighborhood$second_type_neighborhood <- apply(
+    neighborhood$second_type,
+    1, 
+    find_most_frequent
+  )
+  
+  neighborhood$second_type_neighborhood_agreement <- neighborhood$second_type[,1] == neighborhood$second_type_neighborhood
+  
+  
+  # Annotate second type class neighborhood if available
+  if ("second_type_class" %in% names(neighborhood)) {
+    neighborhood$second_type_class_neighborhood <- apply(
+      neighborhood$second_type_class,
+      1, 
+      find_most_frequent
+    )
+    
+    neighborhood$second_type_class_neighborhood_agreement <- neighborhood$second_type_class[,1] == neighborhood$second_type_class_neighborhood
+    
+  } else {
+    warning("`second_type_class` does not exist in the neighborhood object, `second_type_class_neighborhood` was not computed")
+  }
+  
+  return(neighborhood)
+}
+
+
+#' Annotate Neighborhood with Certainty Scores
+#'
+#' This function calculates a certainty score for each neighborhood based on 
+#' the entropy of its cell type composition. The certainty score ranges from 0 
+#' (high entropy, diverse cell types) to 1 (low entropy, dominated by a single cell type).
+#'
+#' @param neighborhood 
+#'   A data frame or list containing neighborhood-level cell type data. It must 
+#'   contain `first_type` and `second_type`, and optionally 
+#'   `first_type_class` and `second_type_class`.
+#'
+#' @return 
+#'   The updated `neighborhood` object with the following additional columns:
+#'   \itemize{
+#'     \item `first_type_neighborhood_certainty`: Certainty score for the first type.
+#'     \item `first_type_class_neighborhood_certainty`: Certainty score for the first type class (if available).
+#'     \item `second_type_neighborhood_certainty`: Certainty score for the second type.
+#'     \item `second_type_class_neighborhood_certainty`: Certainty score for the second type class (if available).
+#'   }
+#'
+#' @details 
+#'   Certainty is computed as:
+#'   \deqn{1 - \frac{H}{\log(N)}}{
+#'   1 - entropy / log(N)
+#'   }
+#'   where \eqn{H} is the entropy of the neighborhood's cell type distribution, 
+#'   and \eqn{N} is the total number of unique cell types. A higher score 
+#'   indicates a more homogenous neighborhood.
+#'
+#'   If `first_type_class` or `second_type_class` is missing, a warning is issued 
+#'   and the respective certainty score is not computed.
+#'
+#' @importFrom entropy entropy
+#' @export
+#'
+
+add_neighborhood_annotation_certainty <- function(
+    neighborhood
+) {
+  
+  # Helper function to compute normalized certainty score based on entropy
+  neighborhood_normalized_certainty <- function(x) {
+    y <- x[-1]
+    fr <- table(y) %>% as.numeric()
+    res <- 1 - entropy::entropy(fr) / log(length(y)) 
+    # More accurate denominator: log(min(length(y), N_cell_types))
+    return(res)
+  }
+  
+  # Compute certainty scores for first type neighborhoods
+  neighborhood$first_type_neighborhood_certainty <- apply(
+    neighborhood$first_type,
+    1, 
+    neighborhood_normalized_certainty
+  )
+  
+  # Compute certainty scores for first type class neighborhoods if available
+  if ("first_type_class" %in% names(neighborhood)) {
+    neighborhood$first_type_class_neighborhood_certainty <- apply(
+      neighborhood$first_type_class,
+      1, 
+      neighborhood_normalized_certainty
+    )
+  } else {
+    warning("`first_type_class` does not exist in the neighborhood object, `first_type_class_neighborhood_certainty` was not computed")
+  }
+  
+  # Compute certainty scores for second type neighborhoods
+  neighborhood$second_type_neighborhood_certainty <- apply(
+    neighborhood$second_type,
+    1, 
+    FUN = neighborhood_normalized_certainty
+  )
+  
+  # Compute certainty scores for second type class neighborhoods if available
+  if ("second_type_class" %in% names(neighborhood)) {
+    neighborhood$second_type_class_neighborhood_certainty <- apply(
+      neighborhood$second_type_class,
+      1, 
+      FUN = neighborhood_normalized_certainty
+    )
+  } else {
+    warning("`second_type_class` does not exist in the neighborhood object, `second_type_class_neighborhood_certainty` was not computed")
+  }
+  
+  return(neighborhood)
+}
+
+
+
+#' Add Transcriptomics-Based Metrics to Neighborhood Data
+#'
+#' This function enriches a transcriptomics neighborhood dataset by incorporating 
+#' additional metrics from an `rctd` object, propagating annotations from neighboring cells, 
+#' and computing neighborhood annotation certainty scores.
+#'
+#' @param transcriptomics_neighborhood 
+#'   A data frame or list representing the transcriptomics neighborhood, 
+#'   containing spatial relationships between cells.
+#' @param rctd 
+#'   An object containing **RCTD** (Robust Cell Type Decomposition) results, 
+#'   which provide cell type compositions inferred from spatial transcriptomics data.
+#'
+#' @return 
+#'   The updated `transcriptomics_neighborhood` object with additional transcriptomics-based metrics:
+#'   \itemize{
+#'     \item **RCTD-derived cell type information** integrated into the neighborhood.
+#'     \item **Propagated annotations from neighboring cells.**
+#'     \item **Certainty scores** quantifying the confidence of neighborhood-level annotations.
+#'   }
+#'
+#' @details 
+#'   The function performs the following steps:
+#'   \enumerate{
+#'     \item **Integrates RCTD data** into the transcriptomics neighborhood using `add_rctd_to_neighborhood()`.
+#'     \item **Propagates annotations from neighboring cells** using `add_annotation_from_neighbors()`.
+#'     \item **Computes neighborhood annotation certainty** using `add_neighborhood_annotation_certainty()`.
+#'   }
+#'
+#' @seealso 
+#'   \code{\link{add_rctd_to_neighborhood}}, 
+#'   \code{\link{add_annotation_from_neighbors}}, 
+#'   \code{\link{add_neighborhood_annotation_certainty}}
+#'
+#' @export
+#'
+
+add_transcriptomics_metric <- function(transcriptomics_neighborhood, rctd) {
+  
+  # Add RCTD data to the transcriptomics neighborhood
+  transcriptomics_neighborhood <- add_rctd_to_neighborhood(
+    graph = transcriptomics_neighborhood, 
+    rctd = rctd
+  )
+  
+  # Propagate annotations from neighboring cells
+  transcriptomics_neighborhood <- add_annotation_from_neighbors(
+    neighborhood = transcriptomics_neighborhood
+  )
+  
+  # Compute neighborhood annotation certainty
+  transcriptomics_neighborhood <- add_neighborhood_annotation_certainty(
+    neighborhood = transcriptomics_neighborhood
+  )
+  
+  return(transcriptomics_neighborhood)
+}
+
+
+
 #' Convert Neighborhood Analysis to Metadata
 #'
 #' This function extracts specific elements from a neighborhood list and
