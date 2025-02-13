@@ -241,10 +241,19 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 #' @export
 
 purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size = 10000) {
+
   results_df <- rctd@results$results_df
+
+  common_cells <- intersect(colnames(counts), rownames(results_df))
+  results_df <- results_df[common_cells, ]
+
   cell_type_info <- rctd@cell_type_info[[1]]
   ct_weights <- rctd@results$weights
-  ct_weights <- ct_weights[,colnames(cell_type_info[[1]])]
+  ct_weights <- ct_weights[common_cells,colnames(cell_type_info[[1]])]
+
+  # Define data volume
+  vol <- ncol(counts) * nrow(counts)
+
   return(purify_counts_with_rctd(
     counts = counts,
     results_df = results_df,
