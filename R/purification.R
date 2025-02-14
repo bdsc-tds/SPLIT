@@ -70,8 +70,8 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
     is.certain <- c(is.certain, "singlet")
   }
 
-  doublets_certain    <- results_df[results_df$spot_class %in% is.certain,]
-  doublets_uncertain  <- results_df[results_df$spot_class %in% c("doublet_uncertain"),]
+  doublets_certain    <- results_df[results_df$spot_class %in% is.certain,] %>% rownames()
+  doublets_uncertain  <- results_df[results_df$spot_class %in% c("doublet_uncertain"),] %>% rownames()
 
   if (is.null(n_workers)) {
     n_workers <- multicoreWorkers() - 1
@@ -81,16 +81,16 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   gene_list <- intersect(rownames(counts), rownames(cell_type_info[[1]]))
   print(length(gene_list))
   # Function to decompose certain doublets
-  decompose_certain <- function(counts, barcode, results_df, ct_weights, gene_list, cell_type_info) {
+  decompose_certain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
     tryCatch({
 
-      bead <- counts[gene_list, barcode]
+      bead <- bead[gene_list, ]
+      barcode <- rownames(results_df_bead)[1]
+      type1 <- as.vector(results_df_bead[barcode, "first_type"])
+      type2 <- as.vector(results_df_bead[barcode, "second_type"])
 
-      type1 <- as.vector(results_df[barcode, "first_type"])
-      type2 <- as.vector(results_df[barcode, "second_type"])
-
-      w1 <- as.vector(results_df[barcode, "weight_first_type"])
-      w2 <- as.vector(results_df[barcode, "weight_second_type"])
+      w1 <- as.vector(results_df_bead[barcode, "weight_first_type"])
+      w2 <- as.vector(results_df_bead[barcode, "weight_second_type"])
 
       if(is.na(type2)){ # highly confident singlet -> Do Not Purify!
         return(list(barcode = barcode, res = bead))
@@ -122,19 +122,19 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
   # Function to decompose uncertain doublets
-  decompose_uncertain <- function(counts, barcode, results_df, ct_weights, gene_list, cell_type_info) {
+  decompose_uncertain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
     tryCatch({
 
-      bead <- counts[gene_list, barcode]
-
-      type1 <- as.vector(results_df[barcode, "first_type"])
-      type2 <- as.vector(results_df[barcode, "second_type"])
+      bead <- bead[gene_list,]
+      barcode <- rownames(results_df_bead)[1]
+      type1 <- as.vector(results_df_bead[barcode, "first_type"])
+      type2 <- as.vector(results_df_bead[barcode, "second_type"])
 
       if(is.na(type2)){ # highly confident singlet -> Do Not Purify!
         return(list(barcode = barcode, res = bead))
       }
 
-      wgts <- ct_weights[barcode,]
+      wgts <- ct_weights_bead[barcode,]
       wgts <- wgts / sum(wgts)
       types <- names(wgts)
 
@@ -156,49 +156,60 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   # Helper function to process chunks
   process_chunks <- function(barcodes, decompose_func) {
     results_list <- list()
+
     for (i in seq(1, length(barcodes), by = chunk_size)) {
-      cat(round(i*100/length(barcodes)))
+      cat(round(i * 100 / length(barcodes)), "%\n")
+
+      # Select only relevant barcodes for this chunk
       chunk_barcodes <- barcodes[i:min(i + chunk_size - 1, length(barcodes))]
+
+
+
+      # Process in parallel, passing only the subsetted counts
       chunk_results <- bplapply(
         chunk_barcodes,
         function(barcode) {
-          decompose_func(counts, barcode, results_df, ct_weights, gene_list, cell_type_info)
+          decompose_func(counts[, barcode, drop = FALSE], results_df[barcode,], ct_weights[barcode,], gene_list, cell_type_info)
         },
         BPPARAM = param
       )
+
       results_list <- c(results_list, chunk_results)
     }
+
     results_list <- Filter(Negate(is.null), results_list)
     return(results_list)
   }
 
+
   # Process certain doublets
   cat("Processing certain doublets...\n")
-  certain_results <- process_chunks(rownames(doublets_certain), decompose_certain)
-  res_certain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = nrow(doublets_certain), dimnames = list(gene_list, rownames(doublets_certain)))
+  certain_results <- process_chunks(doublets_certain, decompose_certain)
+  res_certain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = length(doublets_certain), dimnames = list(gene_list, doublets_certain))
   for (res in certain_results) {
     res_certain_mtrx[, res$barcode] <- res$res
   }
 
   # Process uncertain doublets
   cat("Processing uncertain doublets...\n")
-  uncertain_results <- process_chunks(rownames(doublets_uncertain), decompose_uncertain)
-  res_uncertain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = nrow(doublets_uncertain), dimnames = list(gene_list, rownames(doublets_uncertain)))
+  uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain)
+  res_uncertain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = length(doublets_uncertain), dimnames = list(gene_list, doublets_uncertain))
   for (res in uncertain_results) {
     res_uncertain_mtrx[, res$barcode] <- res$res
   }
 
-  # Process singlets
-  cat("Processing singlets...\n")
-  if(!DO_purify_singlets){
-
-  }
   # Combine results
+  cat("Combaning doublets results ...\n")
   all_DGE <- cbind(res_certain_mtrx, res_uncertain_mtrx)
   cell_ids <- c(colnames(res_certain_mtrx), colnames(res_uncertain_mtrx))
 
+  # Process singlets
 
   if(!DO_purify_singlets){
+
+  }
+  if(!DO_purify_singlets){
+    cat("Processing singlets...\n")
     singlets <- results_df[results_df$spot_class == "singlet",]
     res_singlet_mtrx <- counts[gene_list, rownames(singlets)]
     all_DGE <- cbind(all_DGE, res_singlet_mtrx)
@@ -249,8 +260,9 @@ purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_siz
 
   cell_type_info <- rctd@cell_type_info[[1]]
   ct_weights <- rctd@results$weights
-  ct_weights <- ct_weights[common_cells,colnames(cell_type_info[[1]])]
+  ct_weights <- ct_weights[common_cells, colnames(cell_type_info[[1]])]
 
+  counts <- counts[,common_cells]
   # Define data volume
   vol <- ncol(counts) * nrow(counts)
 
