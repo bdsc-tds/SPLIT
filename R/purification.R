@@ -134,7 +134,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
         return(list(barcode = barcode, res = bead))
       }
 
-      wgts <- ct_weights_bead[barcode,]
+      wgts <- ct_weights_bead
       wgts <- wgts / sum(wgts)
       types <- names(wgts)
 
