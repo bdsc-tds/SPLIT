@@ -215,7 +215,7 @@ update_scores_RCTD <- function(rctd){
     mutate(
       first_type_class = rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"] %>% as.factor(),
       second_type_class = rctd@internal_vars$class_df[df$second_type %>% as.vector(), "class"] %>% as.factor(),
-      same_class = first_type_class == second_type_class
+      same_class = if_else(is.na(second_type_class), NA, first_type_class == second_type_class)
     )
 
   rctd@results$results_df_xe <- df
