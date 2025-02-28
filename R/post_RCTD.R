@@ -213,9 +213,15 @@ update_scores_RCTD <- function(rctd){
   # Check whether first_type and second_type come from the same class
   df <- df %>%
     mutate(
-      first_type_class = rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"] %>% as.factor(),
-      second_type_class = rctd@internal_vars$class_df[df$second_type %>% as.vector(), "class"] %>% as.factor(),
-      same_class =  as.character(first_type_class) == as.character(second_type_class))
+      first_type_class = factor(
+        rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"], 
+        levels = unique(rctd@internal_vars$class_df$class)
+      ),
+      second_type_class = factor(
+        rctd@internal_vars$class_df[df$second_type %>% as.vector(), "class"],
+        levels = unique(rctd@internal_vars$class_df$class)
+      ),
+      same_class =  first_type_class == second_type_class
     )
 
   rctd@results$results_df_xe <- df
