@@ -94,21 +94,35 @@ correct_singlets <- function(
   # select cells with only one candidate cell type
   len_mat <- lapply(rctd@results$singlet_scores_xe, FUN = length) %>% as.numeric() # number of cell type candidates (dont use singlet score, as that one has not been updated)
   confident_singlet_idx <- which(len_mat == 1)
+  no_cell_type_idx <- which(len_mat == 0)
+  rejects_idx <- which(rctd@results$results_df$spot_class == "reject")
+
+  #names(rctd@results$singlet_scores_xe) <- rctd@results$results_df %>% rownames()
 
   #get their singlet scores
-  argmin_singlet_score <- sapply(rctd@results$singlet_scores_xe, function(x) x %>% which.min() %>% names(),simplify = T) %>% unlist()
+  argmin_singlet_score <- sapply(rctd@results$singlet_scores_xe,
+                                 function(x){
+                                   r <- x %>% which.min() %>% names()
+                                   if(is.null(r))
+                                     r <- NA
+                                   return(r)
+                                   }, simplify = T) %>% unlist()
 
   # update first type to make sure highly confined cells have correct annotation
   first_type_updated <- rctd@results$results_df$first_type
   first_type_updated[confident_singlet_idx] <- argmin_singlet_score[confident_singlet_idx]
+  first_type_updated[no_cell_type_idx] <- NA_character_
 
   # replace second type with NA as now RCTD assigns it to a random cell type (usually the first of the available cell types)
   second_type_updated <- rctd@results$results_df$second_type
   second_type_updated[confident_singlet_idx] <- NA_character_
+  second_type_updated[no_cell_type_idx] <- NA_character_
 
   # update spot class of highly confident cells to singlets
   spot_class_upd <- rctd@results$results_df$spot_class
-  spot_class_upd[confident_singlet_idx] <- "singlet"
+  spot_class_upd[setdiff(confident_singlet_idx, rejects_idx)] <- "singlet"
+
+  spot_class_upd[no_cell_type_idx] <- "reject"
   spot_class_upd <- ordered(spot_class_upd, levels = c("reject", "doublet_uncertain", "doublet_certain", "singlet"))
   max_doublet_weight <- apply(rctd@results$weights_doublet, 1, max)
 
@@ -214,7 +228,7 @@ update_scores_RCTD <- function(rctd){
   df <- df %>%
     mutate(
       first_type_class = factor(
-        rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"], 
+        rctd@internal_vars$class_df[df$first_type %>% as.vector(), "class"],
         levels = unique(rctd@internal_vars$class_df$class)
       ),
       second_type_class = factor(

@@ -16,9 +16,10 @@ balance_raw_and_purified_data_by_score <- function(
     xe_raw,
     xe_purified,
     threshold = .15,
-    score_name = "neighborhood_weights_second_type",
+    score_name = c("neighborhood_weights_second_type", "second_type_neighbors_N",  "second_type_neighbors_no_reject_N"),
     spot_class_key = "spot_class"
 ){
+  score_name <- score_name[1]
   if(!score_name %in% colnames(xe_raw@meta.data)){
     stop("score", score_name, "is not available in `xe_raw`, please compute it first!")
   }
