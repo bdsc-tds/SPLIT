@@ -261,8 +261,6 @@ purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_siz
   ct_weights <- ct_weights[common_cells, colnames(cell_type_info[[1]])]
 
   counts <- counts[,common_cells]
-  # Define data volume
-  vol <- ncol(counts) * nrow(counts)
 
   return(purify_counts_with_rctd(
     counts = counts,
@@ -275,3 +273,74 @@ purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_siz
   )
   )
 }
+
+
+#' Split Purified Count Data
+#'
+#' This function splits purified count data into two components based on the first and second cell type annotations. It ensures that negative values in the residual split profile are replaced with zeros.
+#'
+#' @param counts A matrix of raw count data where rows represent genes and columns represent cells.
+#' @param rctd An object containing RCTD results, including spatial and cell type information.
+#' @param DO_purify_singlets A logical value indicating whether to purify singlet cells.
+#' @param n_workers An optional integer specifying the number of workers for parallel processing. Defaults to `NULL`.
+#' @param chunk_size An integer defining the chunk size for processing. Defaults to `10000`.
+#'
+#' @return A list containing:
+#'   \itemize{
+#'     \item `purified_counts`: A matrix of purified count data, with two components labeled `_1` and `_2` for each cell.
+#'     \item `meta.data`: A data frame containing metadata for the purified cells, including cell type annotations and decomposition order.
+#'   }
+#'
+#' @note The function modifies negative residual values in `purified_2`, replacing them with zeros.
+#' @export
+
+
+split <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size = 10000){
+
+  purified <- purify(counts = counts, rctd = rctd, DO_purify_singlets = DO_purify_singlets, n_workers = n_workers, chunk_size = chunk_size)
+
+  purified_1 <- purified$purified_counts
+  cell_meta  <- purified$cell_meta
+  cell_meta$cell_id <- rownames(cell_meta)
+
+  purified_2 <- counts[rownames(purified_1), colnames(purified_1)] - purified_1
+
+  if(sum(purified_2<0) > 0){
+    warning("Residual split profile has ", sum(purified_2<0), "negative values that are replaced with 0s")
+    purified_2[purified_2<0] <- 0
+  }
+
+  cell_meta_1 <- cell_meta
+  cell_meta_1$cell_type <- cell_meta_1$first_type
+
+  colnames(purified_1) <- paste0(colnames(purified_1), "_1")
+  rownames(cell_meta_1) <- paste0(rownames(cell_meta_1), "_1")
+  cell_meta_1$decomposition_order <- "first"
+
+  cell_meta_2 <- cell_meta
+  cell_meta_2$cell_type <- cell_meta_2$second_type
+  cell_meta_2$purification_status[cell_meta_2$purification_status == "raw"] <- "null"
+  colnames(purified_2) <- paste0(colnames(purified_2), "_2")
+  rownames(cell_meta_2) <- paste0(rownames(cell_meta_2), "_2")
+  cell_meta_2$decomposition_order <- "second"
+
+
+  return(list(
+    purified_counts = cbind(purified_1, purified_2),
+    meta.data = rbind(cell_meta_1, cell_meta_2)
+  ))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
