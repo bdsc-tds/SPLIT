@@ -35,10 +35,12 @@ decompose_doublet <- function(
   denom       <- rowSums(sweep(as.matrix(cell_type_info[[1]][gene_list,cell_types]), 2, weights[cell_types], FUN = "*")) + epsilon
   posterior_1 <- (weights[type1] * cell_type_info[[1]][gene_list,type1] + epsilon/N_cell_types) / denom
   expect_1    <- posterior_1 * bead
-  expect_2    <- bead - expect_1
+#  expect_2    <- bead - expect_1
   variance    <- expect_1 * (1 - posterior_1)
 
-  return(list(expect_1 = expect_1, expect_2 = expect_2, variance = variance))
+  return(list(expect_1 = expect_1,
+             # expect_2 = expect_2,
+              variance = variance))
 }
 
 
@@ -200,27 +202,23 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 
   # Combine results
   cat("Combaning doublets results ...\n")
-  all_DGE <- cbind(res_certain_mtrx, res_uncertain_mtrx)
+  purified <- cbind(res_certain_mtrx, res_uncertain_mtrx)
   cell_ids <- c(colnames(res_certain_mtrx), colnames(res_uncertain_mtrx))
 
   # Process singlets
-
-  if(!DO_purify_singlets){
-
-  }
   if(!DO_purify_singlets){
     cat("Processing singlets...\n")
     singlets <- results_df[results_df$spot_class == "singlet",]
     res_singlet_mtrx <- counts[gene_list, rownames(singlets)]
-    all_DGE <- cbind(all_DGE, res_singlet_mtrx)
+    purified <- cbind(purified, res_singlet_mtrx)
     cell_ids <- c(cell_ids, colnames(res_singlet_mtrx))
   }
 
-  colnames(all_DGE) <- cell_ids
-  rownames(all_DGE) <- gene_list
+  colnames(purified) <- cell_ids
+  rownames(purified) <- gene_list
 
-  #all_DGE <- all_DGE[,colnames(counts)]
-  cell_meta <- results_df[colnames(all_DGE),]
+  #purified <- purified[,colnames(counts)]
+  cell_meta <- results_df[colnames(purified),]
 
   cell_meta$purification_status <- "purified"
   if(!DO_purify_singlets){
@@ -228,7 +226,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
   cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
 
-  return(list(purified_counts = all_DGE, cell_meta = cell_meta))
+  return(list(purified_counts = purified, cell_meta = cell_meta))
 }
 
 
