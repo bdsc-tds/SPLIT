@@ -1,6 +1,6 @@
-Package: puRCTD
+Package: SPLIT
 Type: Package
-Title: Purifies single-cell spatial transcriptomics data using RCTD output
+Title: Spatial Purification of Layered Intracellular Transcripts
 Version: 0.1.0
 Authors@R: c(
     person(
@@ -10,7 +10,7 @@ Authors@R: c(
     )
   )
 Description: 
-    The 'puRCTD' package provides tools for purifying spatial transcriptomics data 
+    The 'SPLIT' package provides tools for purifying spatial transcriptomics data using decomposition
     derived from the RCTD (Robust Cell Type Decomposition) algorithm. 
     It offers a series of functions to enhance the accuracy of cell-type annotations, 
     handle noisy data, and improve the overall interpretation of single-cell spatial 
