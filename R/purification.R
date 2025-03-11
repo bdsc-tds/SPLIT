@@ -288,7 +288,7 @@ purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_siz
 #' @return A list containing:
 #'   \itemize{
 #'     \item `purified_counts`: A matrix of purified count data, with two components labeled `_1` and `_2` for each cell.
-#'     \item `meta_data`: A data frame containing metadata for the purified cells, including cell type annotations and decomposition order.
+#'     \item `cell_meta`: A data frame containing metadata for the purified cells, including cell type annotations and decomposition order.
 #'   }
 #'
 #' @note The function modifies negative residual values in `purified_2`, replacing them with zeros.
@@ -327,7 +327,7 @@ split <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size
 
   return(list(
     purified_counts = cbind(purified_1, purified_2),
-    meta_data = rbind(cell_meta_1, cell_meta_2)
+    cell_meta = rbind(cell_meta_1, cell_meta_2)
   ))
 }
 
