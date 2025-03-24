@@ -45,13 +45,17 @@ get_pieplot_df <- function(
       ft <- row["first_type"] %>% unname()
       st <- row["second_type"] %>% unname()
       w1 <- row["weight_first_type"] %>% as.numeric()
-      if(is.na(st)){
-        res[ft] <- 1
-      } else {
-        res[ft] <- w1
-        res[st] <- 1 - w1
-      }
 
+      if(!is.na(ft)){
+        if(is.na(st)){
+          res[ft] <- 1
+        } else {
+          res[ft] <- w1
+          res[st] <- 1 - w1
+        }
+      } else {
+        return(res)
+      }
       return(res)
 
     }) %>% t()
