@@ -226,6 +226,8 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
   cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
 
+  cell_meta$cell_id <- rownames(cell_meta)
+
   return(list(purified_counts = purified, cell_meta = cell_meta))
 }
 
