@@ -35,7 +35,7 @@ get_pieplot_df <- function(
   cell_types_N <- length(cell_types)
 
   pie_df <- rctd@results$results_df %>%
-    select(weight_first_type, weight_second_type, first_type, second_type, w1_larger_w2, x, y)
+    select(spot_class, weight_first_type, weight_second_type, first_type, second_type, w1_larger_w2, x, y)
   pie_df$cell_id <- rownames(pie_df)
 
   if(mode == "doublet"){
@@ -134,11 +134,29 @@ plot_pie <- function(pie_df, cols = NULL, pie_scale = 1){
       cols = cell_types ,               # Specify columns for the pie slices
       pie_scale = pie_scale
     )
+
+  pie_df_cell_type <- pie_df %>% filter(spot_class != "singlet")
+  pie_df_cell_type <- pie_df_cell_type %>%
+    mutate(
+      second_type_spot_class = case_when(
+        spot_class %in% c("reject", "doublet_uncertain") ~ spot_class,
+        spot_class == "doublet_certain" ~ second_type,
+        TRUE ~ second_type
+      )
+    )
+
+  p <- p + geom_point(data = pie_df_cell_type, aes(x = x, y = -y, pch = spot_class, color = second_type_spot_class), size = 3*pie_scale)
+
   if(!is.null(cols)){
+    cols["doublet_uncertain"] <- "black"
+    cols["reject"] <- "black"
+
     p <- p +
       scale_color_manual(values = cols) +
       scale_fill_manual(values = cols)
   }
+
+  p <- p + scale_shape_manual(values = c("doublet_certain" = 16, "doublet_uncertain" = 16, "reject" = 4))
 
   p <- p +
     coord_fixed() +
