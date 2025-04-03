@@ -124,13 +124,13 @@ correct_singlets <- function(
 
   spot_class_upd[no_cell_type_idx] <- "reject"
   spot_class_upd <- ordered(spot_class_upd, levels = c("reject", "doublet_uncertain", "doublet_certain", "singlet"))
-  max_doublet_weight <- apply(rctd@results$weights_doublet, 1, max)
+  max_doublet_weight <- apply(rctd@results$weights_doublet, 1, max) %>% unname()
 
   # compute entropy of rctd weight score
   weights <- rctd@results$weights
   weights[weights<0] <- 0
   weights <- spacexr::normalize_weights(weights)
-  weights_entr <- apply(weights, 1, entropy::entropy)
+  weights_entr <- apply(weights, 1, entropy::entropy) %>% unname()
 
   df <- rctd@results$results_df %>%
     mutate(
@@ -178,12 +178,12 @@ update_scores_RCTD <- function(rctd){
   df <- df %>% mutate(
     singlet_score_first = sapply(1:nrow(df), function(i) {
       ft <- df$first_type[i] %>% as.vector()
-      return(rctd@results$singlet_scores[[i]][ft])
+      return(rctd@results$singlet_scores[[i]][ft] %>% unname())
     }),
     singlet_score_second = sapply(1:nrow(df), function(i) {
       st <- df$second_type[i] %>% as.vector()
       if (is.na(st)) return(NA)
-      return(rctd@results$singlet_scores[[i]][st])
+      return(rctd@results$singlet_scores[[i]][st] %>% unname())
     }),
     delta_singlet_score_first_second = singlet_score_second - singlet_score_first
   )
@@ -197,8 +197,8 @@ update_scores_RCTD <- function(rctd){
 
   # Add weight_first_type, weight_second_type
   df <- df %>% mutate(
-    weight_first_type = rctd@results$weights_doublet[,"first_type"],
-    weight_second_type = rctd@results$weights_doublet[,"second_type"]
+    weight_first_type = rctd@results$weights_doublet[,"first_type"] %>% unname(),
+    weight_second_type = rctd@results$weights_doublet[,"second_type"] %>% unname()
   )
 
   # Calculate delta_singlet_score: difference between first and second smallest singlet scores
@@ -275,8 +275,8 @@ normalize_score_diff_by_nFeature <- function(
   if(is.null(nFeature) || is.null(nCount)){
     # nCount, nFeature
     rctd@results$results_df_xe <- rctd@results$results_df_xe %>% mutate(
-      nCount = Matrix::colSums(rctd@spatialRNA@counts),
-      nFeature = Matrix::colSums(rctd@spatialRNA@counts > 0)
+      nCount = Matrix::colSums(rctd@spatialRNA@counts) %>% unname(),
+      nFeature = Matrix::colSums(rctd@spatialRNA@counts > 0) %>% unname()
     )
   } else {
     rctd@results$results_df_xe <- rctd@results$results_df_xe %>% mutate(
@@ -316,11 +316,11 @@ compute_alternative_annotations <- function(rctd){
   # Compute alternative annotations
   annot_min_singlet_score <- sapply(rctd@results$singlet_scores, function(x) {
     names(x)[which.min(x)]  # directly find the name with min singlet score
-  })
+  }) %>% unname()
 
   annot_max_weight <- apply(rctd@results$weights, 1, function(x) {
-    names(x)[which.max(x)]  # find the name with max weight
-  })
+    names(x)[which.max(x)] # find the name with max weight
+  }) %>% unname()
 
   annot_max_doublet_weight <- ifelse(
     rctd@results$results_df_xe$weight_first_type > rctd@results$results_df_xe$weight_second_type |
