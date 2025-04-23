@@ -21,7 +21,10 @@ If you already have your Xenium dataset as a Seurat object (`xe`) and RCTD resul
 
 ```{r}
 library(SPLIT)
+library(spacexr)
+library(dplyr)
 library(Seurat)
+library(ggplot2)
 
 # Post-process RCTD output
 RCTD <- SPLIT::run_post_process_RCTD(RCTD)
