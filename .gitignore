@@ -53,3 +53,5 @@ dev/
 .DS_Store
 Thumbs.db
 .Rproj.user
+#/doc/
+/Meta/

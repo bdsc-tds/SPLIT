@@ -1,0 +1,233 @@
+---
+title: "RCTD Annotation and SPLIT Purification for Xenium Sample"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running RCTD and SPLIT on Xenium Data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+This vignette demonstrates how to annotate Xenium spatial transcriptomics data using RCTD, followed by purification with SPLIT.
+
+⚠️ **Important Notice**
+
+SPLIT currently requires **doublet-mode** RCTD results generated with the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or the faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD).  
+🚧 **Compatibility with the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html) of spacexr is under development.**
+
+# Overview
+
+SPLIT depends on doublet-mode RCTD annotations as input.  
+In this vignette, we:
+
+- Run RCTD annotation on a Xenium sample using [matched] Chromium data as a reference, using public 10x dataset.
+- Perform SPLIT purification on the annotated Xenium sample.
+
+This pipeline ensures that the reference (chomium) cell type assignments are refined and accurate before downstream analysis.
+
+
+```{r, message=FALSE}
+if(!requireNamespace("spacexr", quietly = TRUE)){
+  remotes::install_github("dmcable/spacexr") ## or remotes::install_github("jpromeror/spacexr@HD") for implementation of the doublet mode.
+}
+library(spacexr)
+
+if(!requireNamespace("SPLIT", quietly = TRUE)){
+  remotes::install_github("bdsc-tds/SPLIT") 
+}
+library(SPLIT)
+
+library(dplyr)
+library(Seurat)
+library(readxl)
+library(SingleCellExperiment)
+library(httr)
+library(ggplot2)
+```
+
+## Load Data
+
+For this vignette, we use a publicly available Xenium dataset from the 10x Genomics database, originating from:
+
+> **Janesick, A., Shelansky, R., Gottscho, A.D. et al.**  
+> *High resolution mapping of the tumor microenvironment using integrated single-cell, spatial and in situ analysis.*  
+> *Nature Communications* 14, 8353 (2023).  
+> [https://doi.org/10.1038/s41467-023-43458-x](https://doi.org/10.1038/s41467-023-43458-x)
+
+This dataset provides high-resolution spatial transcriptomics data suitable for downstream analysis with RCTD and SPLIT.
+
+---
+
+### Load Chromium Dataset (Reference)
+
+We manually load metadata for the Chromium single-cell dataset and metadata from the same study, which will serve as the **reference** for RCTD annotation.
+
+```{r}
+# read metadata
+url <- "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-023-43458-x/MediaObjects/41467_2023_43458_MOESM4_ESM.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+chrom_metadata <- read_excel(temp_file, sheet = 1) %>% as.data.frame()
+rownames(chrom_metadata) <- chrom_metadata$Barcode
+```
+
+Manually load Chromiun from 10x 
+```{r}
+# read Chromium 
+url <- "https://cf.10xgenomics.com/samples/cell-exp/7.0.1/Chromium_FFPE_Human_Breast_Cancer_Chromium_FFPE_Human_Breast_Cancer/Chromium_FFPE_Human_Breast_Cancer_Chromium_FFPE_Human_Breast_Cancer_count_sample_filtered_feature_bc_matrix.h5"
+temp_file <- tempfile(fileext = ".h5")
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+chrom_counts <- Read10X_h5(temp_file)
+chrom <- CreateSeuratObject(counts = chrom_counts, assay = "RNA", meta.data = chrom_metadata)
+
+chrom$QC <- !is.na(chrom$Annotation)
+chrom <- subset(chrom, subset = QC == TRUE)
+```
+
+### Load Xenium Dataset
+
+We load the Xenium spatial transcriptomics data using the `STexampleData` package, which provides convenient access to example spatial datasets for analysis and demonstration.
+
+```{r}
+if(!requireNamespace("STexampleData", quietly = TRUE))
+  remotes::install_github("lmweber/STexampleData")
+xe_full_seu <- STexampleData::Janesick_breastCancer_Xenium_rep1() 
+
+## Convert to Seurat to stay consistent with chromium object
+sp_coords <- spatialCoords(xe_full_seu)
+colnames(sp_coords) <- c("ST_1", "ST_2")
+
+xe_full <- CreateSeuratObject(
+  counts = counts(xe_full_seu),
+  assay = "Xenium",
+  meta.data = as.data.frame(colData(xe_full_seu))
+)
+
+xe_full[["spatial"]] <- CreateDimReducObject(sp_coords, assay = "Xenium", key = "ST_")
+
+xe_full$x <- sp_coords[,1]
+xe_full$y <- sp_coords[,2]
+rm(xe_full_seu)
+```
+
+#### Downsample Xenium Dataset for Faster RCTD (Optional)
+
+To speed up RCTD computation during this tutorial, we optionally downsample the Xenium dataset.  
+
+```{r}
+DO_subset_xe <- FALSE 
+X_lim <- c(6000, Inf)
+Y_lim <- c(4000, Inf)
+
+if(DO_subset_xe){
+  xe <- subset(xe_full, subset = x > min(X_lim) & x < max(X_lim) & y > min(Y_lim) & y < max(Y_lim))
+} else {
+  xe <- xe_full
+}
+```
+
+## Run RCTD Annotation on Xenium
+Running RCTD on large datasets can be computationally intensive and may take several hours. To streamline the workflow, we provide the full code for reproducibility. However, we recommend loading a pre-computed RCTD object by setting `DO_run_RCTD <- FALSE`.
+```{r}
+DO_run_RCTC <- FALSE 
+
+common_genes <- intersect(rownames(xe), rownames(chrom))
+ref_labels <- chrom$Annotation %>% as.factor()
+
+ref.obj <- Reference(GetAssayData(chrom, "RNA", "counts")[common_genes, ],
+                     cell_types = ref_labels, min_UMI = 10, require_int = TRUE)
+
+test.obj <- SpatialRNA(coords = xe@reductions$spatial@cell.embeddings %>% as.data.frame(),
+                       counts = GetAssayData(xe, assay = "Xenium", layer = "counts")[common_genes, ],
+                       require_int = TRUE)
+
+RCTD <- create.RCTD(test.obj, ref.obj, UMI_min = 10, counts_MIN = 10, UMI_min_sigma = 100, max_cores = 20, CELL_MIN_INSTANCE = 25)
+
+if(DO_run_RCTC){
+  RCTD <- run.RCTD(RCTD, doublet_mode = "doublet")
+  saveRDS(RCTD, "~/precomp_rctd.rds")
+} else {
+  message("reading precomp RCTD results")
+  
+  # Install googledrive if you haven't already
+  if (!requireNamespace("googledrive", quietly = TRUE)) {
+    install.packages("googledrive")
+  }
+  library(googledrive)
+  drive_deauth()
+  # Define the file ID from the Google Drive link
+  file_id <- "1DCalFIZJywOvrSGBSPqrHh9QINeQp8aq"
+  local_path <- tempfile(fileext = ".rds")
+  drive_download(as_id(file_id), path = local_path, overwrite = TRUE)
+  RCTD <- readRDS(local_path)
+  
+}
+
+```
+
+## Visualize RCTD Annotation
+Post-process RCDT output and add reselts into Xenium object
+```{r}
+RCTD <- SPLIT::run_post_process_RCTD(RCTD)
+xe <- AddMetaData(xe, RCTD@results$results_df)
+xe <- subset(xe, subset = nCount_Xenium >= 10)
+```
+
+```{r, fig.width=16}
+
+xe <- xe %>% SCTransform(assay = "Xenium") %>% RunPCA() %>% RunUMAP(dims = 1:50)
+p1 <- UMAPPlot(xe, group.by = "first_type", label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+p2 <- UMAPPlot(xe, group.by = "second_type") + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+p3 <- UMAPPlot(xe, group.by = "spot_class") + theme_void() + theme(aspect.ratio = 1, legend.position = "right")
+ 
+p1 | p2 | p3
+
+```
+
+
+## Run SPLIT
+This section runs default SPLIT purification and visualizes purified data.
+For other modes of RCTD that purifies cells based on composition of spatial neighborhood, check [this vignette]()
+```{r}
+# Run SPLIT purification
+res_split <- SPLIT::purify(
+  counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
+  rctd = RCTD,
+  DO_purify_singlets = TRUE # optional
+)
+
+# Create a purified Seurat object
+xe_purified <- CreateSeuratObject(
+  counts = res_split$purified_counts,
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+
+# Optional: Filter, normalize and visualize
+xe_purified <- subset(xe_purified, subset = nCount_Xenium > 5)
+xe_purified <- xe_purified %>%
+  SCTransform(assay = "Xenium") %>%
+  RunPCA() %>%
+  RunUMAP(dims = 1:20)
+
+UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+```
+## Visually compare results of Raw and SPLIT-Purified data
+```{r, fig.height=8}
+p1 <- UMAPPlot(xe, group.by = c("first_type"), label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Raw Xenium data")
+
+p2 <- UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "right") + ggtitle("SPLIT-purified Xenium data")
+
+p1|p2
+
+```
+
+Spatial Visualization
+```{r, fig.height=8}
+DimPlot(xe, reduction = "spatial", group.by = "first_type") + coord_fixed()
+```
+
+
