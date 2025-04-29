@@ -1,23 +1,27 @@
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
 
-🚧 **This package is under active development.**  
-For now, use the **Quick Start** guide below to get up and running quickly.  
+🚧 **This package is under active development.**\
+For now, use the **Quick Start** guide below to get up and running quickly.\
 A comprehensive tutorial and vignettes are coming soon.
 
----
+------------------------------------------------------------------------
 
 ## 📦 Installation
 
 To install SPLIT from GitHub:
 
-```r
+``` r
 # Install SPLIT
 remotes::install_github("bdsc-tds/SPLIT")
 ```
 
 ## 🚀 Quick Start
 
-If you already have your Xenium dataset as a Seurat object (`xe`) and RCTD results from **doublet-mode** decomposition in `RCTD`, you can run SPLIT purification like this:
+⚠️ **IMPORTANT:**\
+SPLIT currently requires **doublet-mode** RCTD results from the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or its faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD), **not** from the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html).\
+🚧 **Compatibility with Bioconductor's spacexr is coming soon.**
+
+If you already have your **Xenium** dataset as a Seurat object (`xe`) and **RCTD** results from **doublet-mode** decomposition in `RCTD`, you can run SPLIT purification like this:
 
 ```{r}
 library(SPLIT)
