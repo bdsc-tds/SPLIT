@@ -19,7 +19,9 @@
 update_score_mat_RCTD <- function(
     rctd,
     min_weight = .01, # same as in run.RCTD, use higher values to remove non-relevant candidates
-    verbose = FALSE
+    verbose = FALSE,
+    BPPARAM = bpparam(),
+    n_workers = NULL
 ){
   score_mat        <- rctd@results$score_mat
   weights          <- rctd@results$weights
@@ -30,24 +32,30 @@ update_score_mat_RCTD <- function(
 
   cell_types <- colnames(weights)
 
-  for(i in seq(length(score_mat))){
-    score_mat[[i]]       <- as.matrix(score_mat[[i]])
-    diag(score_mat[[i]]) <- singlet_scores[[i]]
-    new_candidates       <- cell_types[which(weights[i,] > min_weight)]
-    cur_ct               <- colnames(score_mat[[i]])
-    new_ct               <- cur_ct[cur_ct %in% new_candidates]
-    score_mat[[i]]       <- score_mat[[i]][new_ct, new_ct]
-    singlet_scores[[i]]  <- singlet_scores[[i]][new_ct]
-
-    if(verbose){
-      if(length(new_ct) < length(cur_ct))
-        message(paste("N = ", length(cur_ct) - length(new_ct),
-                      "low-weight cell types (", paste(cur_ct[!(cur_ct %in% new_candidates)], collapse = ","), ") were removed from candidates"))
-    }
+  if (is.null(n_workers)) {
+    n_workers <- multicoreWorkers() - 1
   }
+  param <- MulticoreParam(workers = n_workers)
 
-  rctd@results[["score_mat_xe"]] <- score_mat
-  rctd@results[["singlet_scores_xe"]] <- singlet_scores
+  result_list <- bplapply(seq_along(score_mat), function(i) {
+    smat <- as.matrix(score_mat[[i]])
+    diag(smat) <- singlet_scores[[i]]
+
+    new_candidates <- cell_types[weights[i, ] > min_weight]
+    cur_ct <- colnames(smat)
+    keep_ct <- intersect(cur_ct, new_candidates)
+
+    smat_sub <- smat[keep_ct, keep_ct, drop = FALSE]
+    sscore_sub <- singlet_scores[[i]][keep_ct]
+
+    list(score_mat = smat_sub, singlet_scores = sscore_sub)
+  }, BPPARAM = BPPARAM)
+
+  score_mat_xe <- lapply(result_list, function(x) x$score_mat)
+  singlet_scores_xe <- lapply(result_list, function(x) x$singlet_scores)
+
+  rctd@results$score_mat_xe <- score_mat_xe
+  rctd@results$singlet_scores_xe <- singlet_scores_xe
   return(rctd)
 }
 
@@ -170,30 +178,32 @@ correct_singlets <- function(
 #' The function refines singlet scores for `first_type` and `second_type`, computes score differences, and introduces new metrics such as `delta_singlet_score` and `delta_singlet_score_class`. These metrics help distinguish between highly confident cell types and ambiguous cases. Additionally, the function evaluates whether `first_type` and `second_type` belong to the same class, using an internal class mapping.
 #'
 
-update_scores_RCTD <- function(rctd){
+update_scores_RCTD <- function(rctd, lite = TRUE){
 
   df <- rctd@results$results_df_xe
 
-  # Ensure first_type and second_type are available in the data frame
-  df <- df %>% mutate(
-    singlet_score_first = sapply(1:nrow(df), function(i) {
-      ft <- df$first_type[i] %>% as.vector()
-      return(rctd@results$singlet_scores[[i]][ft] %>% unname())
-    }),
-    singlet_score_second = sapply(1:nrow(df), function(i) {
-      st <- df$second_type[i] %>% as.vector()
-      if (is.na(st)) return(NA)
-      return(rctd@results$singlet_scores[[i]][st] %>% unname())
-    }),
-    delta_singlet_score_first_second = singlet_score_second - singlet_score_first
-  )
+  if(!lite){
+    # Ensure first_type and second_type are available in the data frame
+    df <- df %>% mutate(
+      singlet_score_first = sapply(1:nrow(df), function(i) {
+        ft <- df$first_type[i] %>% as.vector()
+        return(rctd@results$singlet_scores[[i]][ft] %>% unname())
+      }),
+      singlet_score_second = sapply(1:nrow(df), function(i) {
+        st <- df$second_type[i] %>% as.vector()
+        if (is.na(st)) return(NA)
+        return(rctd@results$singlet_scores[[i]][st] %>% unname())
+      }),
+      delta_singlet_score_first_second = singlet_score_second - singlet_score_first
+    )
 
-  # Update score_diff to be consistent with the new singlet_score
-  df <- df %>% mutate(
-    score_diff = df$singlet_score_first - df$min_score,  # Use this one
-    score_diff_old = df$singlet_score - df$min_score,  # Keep this to track
-    delta_singlet_score_original_first_class = singlet_score_first - singlet_score  # Difference between singlet_score and singlet_score_first
-  )
+    # Update score_diff to be consistent with the new singlet_score
+    df <- df %>% mutate(
+      score_diff = df$singlet_score_first - df$min_score,  # Use this one
+      score_diff_old = df$singlet_score - df$min_score,  # Keep this to track
+      delta_singlet_score_original_first_class = singlet_score_first - singlet_score  # Difference between singlet_score and singlet_score_first
+    )
+  }
 
   # Add weight_first_type, weight_second_type
   df <- df %>% mutate(
@@ -201,28 +211,30 @@ update_scores_RCTD <- function(rctd){
     weight_second_type = rctd@results$weights_doublet[,"second_type"] %>% unname()
   )
 
-  # Calculate delta_singlet_score: difference between first and second smallest singlet scores
-  sorted_singlet_scores <- sapply(rctd@results$singlet_scores, FUN = function(x) sort(x, decreasing = F))
-  delta_singlet_score <- sapply(sorted_singlet_scores, FUN = function(x) {
-    if (length(x) == 1) return(Inf)
-    return(x[2] - x[1])
-  })
-  df$delta_singlet_score <- delta_singlet_score
+  if(!lite){
+    # Calculate delta_singlet_score: difference between first and second smallest singlet scores
+    sorted_singlet_scores <- sapply(rctd@results$singlet_scores, FUN = function(x) sort(x, decreasing = F))
+    delta_singlet_score <- sapply(sorted_singlet_scores, FUN = function(x) {
+      if (length(x) == 1) return(Inf)
+      return(x[2] - x[1])
+    })
+    df$delta_singlet_score <- delta_singlet_score
 
-  # Calculate delta_singlet_score_class (ignore same class elements when computing delta score)
-  sorted_singlet_scores_class <- sapply(sorted_singlet_scores, function(x) {
-    class_vec <- rctd@internal_vars$class_df[names(x), "class"]
-    mask <- class_vec != class_vec[1]  # Keep elements where their class != class[1]
-    mask[1] <- TRUE  # Keep the first element
-    return(x[mask])
-  })
+    # Calculate delta_singlet_score_class (ignore same class elements when computing delta score)
+    sorted_singlet_scores_class <- sapply(sorted_singlet_scores, function(x) {
+      class_vec <- rctd@internal_vars$class_df[names(x), "class"]
+      mask <- class_vec != class_vec[1]  # Keep elements where their class != class[1]
+      mask[1] <- TRUE  # Keep the first element
+      return(x[mask])
+    })
 
-  delta_singlet_score_class <- sapply(sorted_singlet_scores_class, FUN = function(x) {
-    if (length(x) == 1) return(0)
-    return(x[2] - x[1])
-  })
+    delta_singlet_score_class <- sapply(sorted_singlet_scores_class, FUN = function(x) {
+      if (length(x) == 1) return(0)
+      return(x[2] - x[1])
+    })
 
-  df$delta_singlet_score_class <- delta_singlet_score_class
+    df$delta_singlet_score_class <- delta_singlet_score_class
+  }
 
   # Check whether first_type and second_type come from the same class
   df <- df %>%
@@ -444,31 +456,36 @@ run_post_process_RCTD <- function(
     min_weight = 0.05,
     nFeature_doublet_threshold = 0.5,
     nFeature = NULL,
-    nCount = NULL
+    nCount = NULL,
+    n_workers = NULL,
+    lite = TRUE
 ){
   message("Updating score_mat ...")
   rctd <- update_score_mat_RCTD(
     rctd = rctd,
-    min_weight = min_weight
+    min_weight = min_weight,
+    n_workers = n_workers
   )
 
   message("Correcting singlets ...")
   rctd <- correct_singlets(rctd = rctd)
 
   message("Updating scores ...")
-  rctd <- update_scores_RCTD(rctd = rctd)
+  rctd <- update_scores_RCTD(rctd = rctd, lite = lite)
 
   message("Add coordinates to results ...")
   rctd@results$results_df_xe$x <- rctd@spatialRNA@coords[rownames(rctd@results$results_df_xe), "x"]
   rctd@results$results_df_xe$y <- rctd@spatialRNA@coords[rownames(rctd@results$results_df_xe), "y"]
 
-  message("Normalizing score_diff by nFeature ...")
-  rctd <- normalize_score_diff_by_nFeature(
-    rctd = rctd,
-    nFeature_doublet_threshold = nFeature_doublet_threshold,
-    nFeature = nFeature,
-    nCount = nCount
-  )
+  if(!lite){
+    message("Normalizing score_diff by nFeature ...")
+    rctd <- normalize_score_diff_by_nFeature(
+      rctd = rctd,
+      nFeature_doublet_threshold = nFeature_doublet_threshold,
+      nFeature = nFeature,
+      nCount = nCount
+    )
+  }
 
   message("Computing alternative annotations ...")
   rctd <- compute_alternative_annotations(rctd)
