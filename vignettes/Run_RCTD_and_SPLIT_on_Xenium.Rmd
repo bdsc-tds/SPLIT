@@ -1,6 +1,6 @@
 ---
 title: "RCTD Annotation and SPLIT Purification for Xenium Sample"
-output: rmarkdown::html_vignette
+output: rmarkdown::github_document
 vignette: >
   %\VignetteIndexEntry{Running RCTD and SPLIT on Xenium Data}
   %\VignetteEngine{knitr::rmarkdown}
@@ -190,7 +190,7 @@ p1 | p2 | p3
 
 ## Run SPLIT
 This section runs default SPLIT purification and visualizes purified data.
-For other modes of RCTD that purifies cells based on composition of spatial neighborhood, check [this vignette]()
+For other modes of RCTD that purifies cells based on composition of spatial neighborhood, check [this vignette](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_spatially_balanced_SPLIT_on_Xenium.html)
 ```{r}
 # Run SPLIT purification
 res_split <- SPLIT::purify(
