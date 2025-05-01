@@ -1,0 +1,22 @@
+citHeader("To cite SPLIT in publications, please use:")
+
+bibentry(
+  bibtype = "Article",
+  title = "From Transcripts to Cells: Dissecting Sensitivity, Signal Contamination, and Specificity in Xenium Spatial Transcriptomics",
+  author = person(c("Mariia", "Bilous"),
+                  c("Daria", "Buszta"),
+                  c("Jonathan", "Bac"),
+                  c("Senbai", "Kang"),
+                  c("Yixing", "Dong"),
+                  c("Stephanie", "Tissot"),
+                  c("Sylvie", "Andre"),
+                  c("Marina", "Alexandre-Gaveta"),
+                  c("Christel", "Voize"),
+                  c("Solange", "Peters"),
+                  c("Krisztian", "Homicsko"),
+                  c("Raphael", "Gottardo")),
+  year = "2025",
+  journal = "bioRxiv",
+  note = "doi:10.1101/2025.04.23.649965",
+  url = "https://doi.org/10.1101/2025.04.23.649965"
+)
