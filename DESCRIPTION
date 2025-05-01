@@ -23,15 +23,14 @@ Depends: R (>= 4.0.0)
 Imports:
     Matrix,
     dplyr,
-    magrittr,
     forcats,
     entropy,
-    tidyr,
     spacexr,
     ggplot2,
     scatterpie,
     Seurat,
-    BiocParallel
+    BiocParallel,
+    igraph
 Suggests:
     testthat,
     knitr,
