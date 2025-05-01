@@ -124,7 +124,7 @@ crop_pie_df_to_cell <- function(
 
 plot_pie <- function(pie_df, cols = NULL, pie_scale = 1){
 
-  cell_types <- unique(c(pie_df$first_type,pie_df$second_type))
+  cell_types <- unique(c(pie_df$first_type,pie_df$second_type)) %>% as.vector()
   cell_types <- cell_types[!is.na(cell_types)]
 
   p <- ggplot() +
@@ -136,16 +136,19 @@ plot_pie <- function(pie_df, cols = NULL, pie_scale = 1){
     )
 
   pie_df_cell_type <- pie_df %>% filter(spot_class != "singlet")
-  pie_df_cell_type <- pie_df_cell_type %>%
-    mutate(
-      second_type_spot_class = case_when(
-        spot_class %in% c("reject", "doublet_uncertain") ~ spot_class,
-        spot_class == "doublet_certain" ~ second_type,
-        TRUE ~ second_type
-      )
-    )
 
-  p <- p + geom_point(data = pie_df_cell_type, aes(x = x, y = -y, pch = spot_class, color = second_type_spot_class), size = 3*pie_scale)
+  if(!is.null(pie_df_cell_type)){
+    pie_df_cell_type <- pie_df_cell_type %>%
+      mutate(
+        second_type_spot_class = case_when(
+          spot_class %in% c("reject", "doublet_uncertain") ~ as.character(spot_class),
+          spot_class == "doublet_certain" ~ as.character(second_type),
+          TRUE ~ as.character(second_type)
+        )
+      )
+
+    p <- p + geom_point(data = pie_df_cell_type, aes(x = x, y = -y, pch = spot_class, color = second_type_spot_class), size = 3*pie_scale)
+  }
 
   if(!is.null(cols)){
     cols["doublet_uncertain"] <- "black"
