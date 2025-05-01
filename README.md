@@ -1,8 +1,10 @@
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
 
-🚧 **This package is under active development.**\
-For now, use the **Quick Start** guide below to get up and running quickly.\
-A comprehensive tutorial and vignettes are coming soon.
+![](vignettes/plots/SPLIT_schema.png)
+
+🚧 **This package is under active development.**  
+⚡ Use the **Quick Start** guide below to get up and running quickly.  
+📖 A comprehensive tutorial is now available 👉 [Run RCTD and SPLIT on Xenium](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd).
 
 ------------------------------------------------------------------------
 
@@ -55,3 +57,16 @@ xe_purified <- xe_purified %>%
   RunUMAP(dims = 1:20)
 UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme(aspect.ratio = 1)
 ```
+
+## Citation
+
+If you use **SPLIT** in your work, please cite:
+
+> **From Transcripts to Cells: Dissecting Sensitivity, Signal Contamination, and Specificity in Xenium Spatial Transcriptomics**  
+> Mariia Bilous, Daria Buszta, Jonathan Bac, Senbai Kang, Yixing Dong, Stephanie Tissot, Sylvie Andre, Marina Alexandre-Gaveta, Christel Voize, Solange Peters, Krisztian Homicsko, Raphael Gottardo  
+> *bioRxiv* (2025). https://doi.org/10.1101/2025.04.23.649965
+
+## Contact 
+
+If you have any questions about the package, feel free to [open an issue](https://github.com/bdsc-tds/SPLIT/issues) or contact **Mariia Bilous** at [Mariia.Bilous@chuv.ch](mailto:Mariia.Bilous@chuv.ch).
+
