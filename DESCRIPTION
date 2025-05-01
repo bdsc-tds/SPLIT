@@ -29,7 +29,9 @@ Imports:
     tidyr,
     spacexr,
     ggplot2,
-    scatterpie
+    scatterpie,
+    Seurat,
+    BiocParallel
 Suggests:
     testthat,
     knitr,
