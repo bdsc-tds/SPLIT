@@ -39,7 +39,7 @@ jobs:
         with:
           upload-snapshots: true
           args: --no-build-vignettes --no-manual --no-stop-on-warning
-          build_args: --no-build-vignettes --no-manual --compact-vignettes=gs+qpdf
+          build_args: --no-build-vignettes --no-manual
 
 
 
