@@ -38,8 +38,7 @@ jobs:
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
-          error-on: 'error'
-          args: --no-build-vignettes --no-manual
+          args: --no-build-vignettes --no-manual --no-stop-on-warning
           build_args: --no-build-vignettes --no-manual --compact-vignettes=gs+qpdf
 
 
