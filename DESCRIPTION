@@ -10,12 +10,16 @@ Authors@R: c(
     )
   )
 Description: 
-    The 'SPLIT' package provides tools for purifying spatial transcriptomics data using decomposition
-    derived from the RCTD (Robust Cell Type Decomposition) algorithm. 
-    It offers a series of functions to enhance the accuracy of cell-type annotations, 
-    handle noisy data, and improve the overall interpretation of single-cell spatial 
-    expression profiles by performing data normalization, entropy analysis, and 
-    annotation confidence scoring. 
+  The SPLIT (Spatial Purification of Layered Intracellular Transcripts) package provides 
+  tools to purify spatial transcriptomics data using decomposition results from the RCTD 
+  (Robust Cell Type Decomposition) algorithm. It offers functionality to adjust cell-type 
+  profiles by removing contributions attributed to background contamination. SPLIT also 
+  computes contamination scores and estimates local diffusion of contaminating profiles 
+  to help distinguish between contamination and phenotypic variation. Additionally, 
+  the package includes methods to refine cell-type annotations based on transcriptomic 
+  neighborhood homogeneity. The resulting output contains profiles with reduced 
+  contamination and increased cell-type specificity.
+    
 License: MIT
 Encoding: UTF-8
 LazyData: true

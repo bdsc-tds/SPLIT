@@ -1,6 +1,7 @@
 <!-- badges: start --> 
 [![R-CMD-check](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml) 
 [![DOI](https://img.shields.io/badge/DOI%3A-10.1101%2F2025.04.23.649965-brightgreen)](https://doi.org/10.1101/2025.04.23.649965)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.0)
 <!-- badges: end -->
 
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
