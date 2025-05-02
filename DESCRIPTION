@@ -19,7 +19,6 @@ Description:
   the package includes methods to refine cell-type annotations based on transcriptomic 
   neighborhood homogeneity. The resulting output contains profiles with reduced 
   contamination and increased cell-type specificity.
-    
 License: MIT
 Encoding: UTF-8
 LazyData: true
