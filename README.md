@@ -2,9 +2,9 @@
 
 ![](vignettes/plots/SPLIT_schema.png)
 
-🚧 **This package is under active development.**  
-⚡ Use the **Quick Start** guide below to get up and running quickly.  
-📖 A comprehensive tutorial is now available 👉 [Run RCTD and SPLIT on Xenium](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd).
+🚧 **This package is under active development.**\
+⚡ Use the **Quick Start** guide below to get up and running quickly.\
+📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as 👉 [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html).
 
 ------------------------------------------------------------------------
 
@@ -62,11 +62,10 @@ UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme(
 
 If you use **SPLIT** in your work, please cite:
 
-> **From Transcripts to Cells: Dissecting Sensitivity, Signal Contamination, and Specificity in Xenium Spatial Transcriptomics**  
-> Mariia Bilous, Daria Buszta, Jonathan Bac, Senbai Kang, Yixing Dong, Stephanie Tissot, Sylvie Andre, Marina Alexandre-Gaveta, Christel Voize, Solange Peters, Krisztian Homicsko, Raphael Gottardo  
-> *bioRxiv* (2025). https://doi.org/10.1101/2025.04.23.649965
+> **From Transcripts to Cells: Dissecting Sensitivity, Signal Contamination, and Specificity in Xenium Spatial Transcriptomics**\
+> Mariia Bilous, Daria Buszta, Jonathan Bac, Senbai Kang, Yixing Dong, Stephanie Tissot, Sylvie Andre, Marina Alexandre-Gaveta, Christel Voize, Solange Peters, Krisztian Homicsko, Raphael Gottardo\
+> *bioRxiv* (2025). <https://doi.org/10.1101/2025.04.23.649965>
 
-## Contact 
+## Contact
 
-If you have any questions about the package, feel free to [open an issue](https://github.com/bdsc-tds/SPLIT/issues) or contact **Mariia Bilous** at [Mariia.Bilous@chuv.ch](mailto:Mariia.Bilous@chuv.ch).
-
+If you have any questions about the package, feel free to [open an issue](https://github.com/bdsc-tds/SPLIT/issues) or contact **Mariia Bilous** at [Mariia.Bilous\@chuv.ch](mailto:Mariia.Bilous@chuv.ch).
