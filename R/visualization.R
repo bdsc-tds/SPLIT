@@ -113,6 +113,8 @@ crop_pie_df_to_cell <- function(
 #' @param pie_df A data frame containing spatial cell type proportions and coordinates.
 #' @param cols An optional named vector of colors for cell types.
 #' @param pie_scale A numeric value to scale pie sizes (default: 1).
+#' @param x_lims A numeric vector specifying x-axis limits.
+#' @param y_lims A numeric vector specifying y-axis limits.
 #'
 #' @return A ggplot object representing the spatial pie chart.
 #'
@@ -122,7 +124,7 @@ crop_pie_df_to_cell <- function(
 
 #' @export
 
-plot_pie <- function(pie_df, cols = NULL, pie_scale = 1){
+plot_pie <- function(pie_df, cols = NULL, pie_scale = 1, x_lims = NULL, y_lims = NULL){
 
   cell_types <- unique(c(pie_df$first_type,pie_df$second_type)) %>% as.vector()
   cell_types <- cell_types[!is.na(cell_types)]
@@ -161,8 +163,12 @@ plot_pie <- function(pie_df, cols = NULL, pie_scale = 1){
 
   p <- p + scale_shape_manual(values = c("doublet_certain" = 16, "doublet_uncertain" = 16, "reject" = 4))
 
+  # Handle x_lims and y_lims: use given values or compute from data
+  if (is.null(x_lims)) x_lims <- range(pie_df$x, na.rm = TRUE)
+  if (is.null(y_lims)) y_lims <- range(-pie_df$y, na.rm = TRUE)  # Adjust for flipped y
+
   p <- p +
-    coord_fixed() +
+    coord_fixed(xlim = x_lims, ylim = y_lims) +
     theme_void() +
     guides(color = "none")  # Hide the color legend but keep the fill legend
 
@@ -192,7 +198,7 @@ plot_pie_by_coordinates <- function(
 ){
 
   pie_df_crop <- pie_df %>% filter(x > min(x_lims) & x < max(x_lims) & y > min(y_lims) & y < max(y_lims))
-  p <- plot_pie(pie_df_crop, cols = cols, pie_scale = pie_scale)
+  p <- plot_pie(pie_df_crop, cols = cols, pie_scale = pie_scale, x_lims = x_lims, y_lims = -y_lims)
 
   return(p)
 }
