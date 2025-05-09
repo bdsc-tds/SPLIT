@@ -259,3 +259,42 @@ save_pieplot <- function(
   ggsave(filename, plot = p, bg = "transparent", ... )
 }
 
+#' Overlay Pies over segmentation
+#'
+#' This function overlays two ggplot2 plots (`p_pie` on top of `p_back`) by converting them
+#' to grobs and aligning their widths and heights. It uses `grid.draw()` to render them
+#' sequentially on the same graphics page. This is useful for combining spatial plots
+#' such as background tissue images with scatterpie charts or segmentation masks.
+#'
+#' @param p_back Background ggplot (e.g., base tissue or map)
+#' @param p_pie Foreground ggplot (e.g., scatterpie layer)
+#'
+#' @return This function is used for its side effect of drawing the overlaid plots. It does not return a value.
+#'
+#' @examples
+#' \dontrun{
+#' bbox <- c(xmin= 2000, ymin = 2000, xmax = 2100, ymax= 2100)
+#' p_background <- Voyager::plotGeometryColored(sfe,  colGeometryName = c("cellSeg", "nucSeg"),  color_by = "first_type", gene = c("CD8A", "MUC1"), bbox = bbox)
+#' p_scatterpie <- SPLIT::plot_pie_by_coordinates(pie_df, x_lims = c(bbox[c("xmin", "xmax")]), y_lims = -c(bbox[c("ymin", "ymax")]))
+#' overlay_pieplot(p_background, p_scatterpie)
+#' }
+#'
+#' @importFrom ggplot2 ggplotGrob
+#' @importFrom grid grid.newpage grid.draw
+#' @export
+
+overlay_pieplot <- function(p_back, p_pie){
+
+  # Convert both to grobs
+  g1 <- ggplotGrob(p_back)
+  g2 <- ggplotGrob(p_pie)
+
+  # Ensure same size by aligning their widths and heights
+  g2$widths <- g1$widths
+  g2$heights <- g1$heights
+
+  # Plot overlay using grid
+  grid.newpage()
+  grid.draw(g1)
+  grid.draw(g2)  # Overlays on top
+}

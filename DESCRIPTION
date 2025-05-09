@@ -6,7 +6,8 @@ Authors@R: c(
     person(
       "Mariia", "Bilous",
       email = "Mariia.Bilous@chuv.ch",
-      role = c("aut", "cre")
+      role = c("aut", "cre"),
+      comment = c(ORCID = "0000-0002-8570-5709")
     )
   )
 Description: 
@@ -33,7 +34,8 @@ Imports:
     scatterpie,
     Seurat,
     BiocParallel,
-    igraph
+    igraph,
+    grid
 Suggests:
     testthat,
     knitr,
