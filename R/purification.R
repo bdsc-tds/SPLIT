@@ -76,9 +76,14 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   doublets_uncertain  <- results_df[results_df$spot_class %in% c("doublet_uncertain"),] %>% rownames()
 
   if (is.null(n_workers)) {
-    n_workers <- multicoreWorkers() - 1
+    n_workers <- max(1, BiocParallel::multicoreWorkers() - 1)
   }
-  param <- MulticoreParam(workers = n_workers)
+
+  if (.Platform$OS.type == "windows") {
+    BPPARAM <- BiocParallel::SnowParam(workers = n_workers, type = "SOCK")
+  } else {
+    BPPARAM <- BiocParallel::MulticoreParam(workers = n_workers)
+  }
 
   gene_list <- intersect(rownames(counts), rownames(cell_type_info[[1]]))
   print(length(gene_list))
@@ -173,7 +178,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
         function(barcode) {
           decompose_func(counts[, barcode, drop = FALSE], results_df[barcode,], ct_weights[barcode,], gene_list, cell_type_info)
         },
-        BPPARAM = param
+        BPPARAM = BPPARAM
       )
 
       results_list <- c(results_list, chunk_results)
