@@ -33,9 +33,16 @@ update_score_mat_RCTD <- function(
   cell_types <- colnames(weights)
 
   if (is.null(n_workers)) {
-    n_workers <- multicoreWorkers() - 1
+    n_workers <- min(4, BiocParallel::multicoreWorkers() - 1)
   }
-  param <- MulticoreParam(workers = n_workers)
+
+
+  if (.Platform$OS.type == "windows") {
+    BPPARAM <- BiocParallel::SnowParam(workers = n_workers, type = "SOCK")
+  } else {
+    BPPARAM <- BiocParallel::MulticoreParam(workers = n_workers)
+  }
+
 
   result_list <- bplapply(seq_along(score_mat), function(i) {
     smat <- as.matrix(score_mat[[i]])
@@ -89,10 +96,11 @@ update_score_mat_RCTD <- function(
 
 
 correct_singlets <- function(
-    rctd
+    rctd,
+    min_weight = 0.01
 ){
-  if(!("singlet_scores_xe" %in% names(rctd@results)))
-    stop("No `singlet_scores_xe` field in rctd@results, run `update_score_mat()` first!")
+  #if(!("singlet_scores_xe" %in% names(rctd@results)))
+  # stop("No `singlet_scores_xe` field in rctd@results, run `update_score_mat()` first!")
 
   if("scond_type" %in% colnames(rctd@results$results_df)){
     rctd@results$results_df$second_type <- rctd@results$results_df$scond_type
@@ -100,7 +108,7 @@ correct_singlets <- function(
   df <- rctd@results$results_df
 
   # select cells with only one candidate cell type
-  len_mat <- lapply(rctd@results$singlet_scores_xe, FUN = length) %>% as.numeric() # number of cell type candidates (dont use singlet score, as that one has not been updated)
+  len_mat <-  apply(rctd@results$weights > min_weight, 1, FUN = sum) %>% as.numeric() # number of cell type candidates (dont use singlet score, as that one has not been updated)
   confident_singlet_idx <- which(len_mat == 1)
   no_cell_type_idx <- which(len_mat == 0)
   rejects_idx <- which(rctd@results$results_df$spot_class == "reject")
@@ -108,17 +116,18 @@ correct_singlets <- function(
   #names(rctd@results$singlet_scores_xe) <- rctd@results$results_df %>% rownames()
 
   #get their singlet scores
-  argmin_singlet_score <- sapply(rctd@results$singlet_scores_xe,
-                                 function(x){
-                                   r <- x %>% which.min() %>% names()
-                                   if(is.null(r))
-                                     r <- NA
-                                   return(r)
-                                   }, simplify = T) %>% unlist()
+  argmax_weight <- apply(rctd@results$weights,
+                         1,
+                         function(x){
+                           r <- x %>% which.max() %>% names()
+                           if(is.null(r))
+                             r <- NA
+                           return(r)
+                         }, simplify = T) %>% unlist()
 
   # update first type to make sure highly confined cells have correct annotation
   first_type_updated <- rctd@results$results_df$first_type
-  first_type_updated[confident_singlet_idx] <- argmin_singlet_score[confident_singlet_idx]
+  first_type_updated[confident_singlet_idx] <- argmax_weight[confident_singlet_idx]
   first_type_updated[no_cell_type_idx] <- NA_character_
 
   # replace second type with NA as now RCTD assigns it to a random cell type (usually the first of the available cell types)
@@ -461,14 +470,14 @@ run_post_process_RCTD <- function(
     lite = TRUE
 ){
   message("Updating score_mat ...")
-  rctd <- update_score_mat_RCTD(
-    rctd = rctd,
-    min_weight = min_weight,
-    n_workers = n_workers
-  )
+  # rctd <- update_score_mat_RCTD(
+  #   rctd = rctd,
+  #   min_weight = min_weight,
+  #   n_workers = n_workers
+  # )
 
   message("Correcting singlets ...")
-  rctd <- correct_singlets(rctd = rctd)
+  rctd <- correct_singlets(rctd = rctd, min_weight = min_weight)
 
   message("Updating scores ...")
   rctd <- update_scores_RCTD(rctd = rctd, lite = lite)
