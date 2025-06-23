@@ -1,4 +1,4 @@
-#' Updates `score_mat` of the `Run.RCTD` output
+#' Updates `score_mat` of the `Run.RCTD` output  (Deprecated)
 #'
 #' Adds `singlet_scores` as a diagonal and removes cell types with a low weight in full cell-type decomposition.
 #'
@@ -6,15 +6,13 @@
 #' from the candidate list if their corresponding weight is below a user-defined threshold. The updated
 #' `score_mat` and `singlet_scores` are saved in the `rctd` object.
 #'
-#' @param rctd An object resulting from \link[spacerx]{Run.RCTD}.
+#' @param rctd An object resulting from \link[spacexr]{Run.RCTD}.
 #' @param min_weight A threshold (numeric) to keep cell types as candidates. Cell types with a weight below this
 #'        threshold are removed from the `score_mat`. Default is 0.01, which is the same as in `Run.RCTD`.
 #' @param verbose Logical. If `TRUE`, the function will print messages about removed low-weight cell types.
 #'        Default is `FALSE`.
 #'
 #' @return An updated `rctd` object with modified `score_mat` and `singlet_scores`.
-#'
-
 
 update_score_mat_RCTD <- function(
     rctd,
@@ -23,6 +21,12 @@ update_score_mat_RCTD <- function(
     BPPARAM = bpparam(),
     n_workers = NULL
 ){
+  # Deprecated: This function is no longer used and will be removed in a future release.
+  intermediate_function <- function(...) {
+    warning("`update_score_mat_RCTD()` is deprecated and no longer used. It will be removed in a future version.", call. = FALSE)
+    invisible(NULL)
+  }
+
   score_mat        <- rctd@results$score_mat
   weights          <- rctd@results$weights
   singlet_scores   <- rctd@results$singlet_scores
@@ -437,7 +441,6 @@ compute_annotation_confidence <- function(rctd){
 #' alternative annotation computation, entropy calculation, and annotation confidence computation.
 #'
 #' The following processing steps are performed in order:
-#' - Updates the score matrix using `update_score_mat_RCTD()`
 #' - Corrects singlets using `correct_singlets()`
 #' - Updates scores with `update_scores_RCTD()`
 #' - Normalizes the score difference by the number of features using `normalize_score_diff_by_nFeature()`
@@ -469,12 +472,6 @@ run_post_process_RCTD <- function(
     n_workers = NULL,
     lite = TRUE
 ){
-  message("Updating score_mat ...")
-  # rctd <- update_score_mat_RCTD(
-  #   rctd = rctd,
-  #   min_weight = min_weight,
-  #   n_workers = n_workers
-  # )
 
   message("Correcting singlets ...")
   rctd <- correct_singlets(rctd = rctd, min_weight = min_weight)
