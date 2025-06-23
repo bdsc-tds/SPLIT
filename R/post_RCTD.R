@@ -75,6 +75,7 @@ update_score_mat_RCTD <- function(
 #' This function updates the `first_type` and `spot_class` fields in the results of an RCTD object for cells classified as highly confident singlets. It ensures accurate cell-type annotations for singlets with only one candidate cell type and updates related fields accordingly.
 #'
 #' @param rctd An `RCTD` object containing spatial transcriptomics annotation results. The object must have the `singlet_scores_xe` field in `rctd@results`. Run `update_score_mat()` prior to using this function if the field is missing.
+#' @param min_weight Minimum weight threshold for the score matrix update (default: 0.05).
 #'
 #' @return An updated `RCTD` object with the following fields modified in `rctd@results$results_df_xe`:
 #' \itemize{
@@ -459,6 +460,7 @@ compute_annotation_confidence <- function(rctd){
 #'                 overrides calculation based on the data if provided (default: NULL).
 #' @param nCount Optional numeric vector providing the count of features for each cell,
 #'                overrides calculation based on the data if provided (default: NULL).
+#' @param lite Logical; if \code{TRUE}, skips computation of many aux scores that are not used downstream and were meant for the exploration stage
 #'
 #' @return Updated RCTD object with processed results.
 #' @export
@@ -469,7 +471,6 @@ run_post_process_RCTD <- function(
     nFeature_doublet_threshold = 0.5,
     nFeature = NULL,
     nCount = NULL,
-    n_workers = NULL,
     lite = TRUE
 ){
 
