@@ -25,18 +25,26 @@ swap_expr <- rlang::expr({
 })
 
 #' Balance raw and purified data by merging high quality raw data and otherwise purified data
+#' Balance Raw and Purified Data Based on Quality Score
 #'
-#' Merges raw and purified data into one dataset by keeping raw counts
-#' for high quality cells and replacing contaminated cells with their purified profiles. Reject cells are removed
+#' Combines raw and purified data into a single Seurat object. For cells with high-quality raw data, the original counts are retained.
+#' Contaminated cells (below the specified quality threshold) are replaced by their purified expression profiles. Cells classified as 'reject' are removed entirely.
 #'
+#' @param xe_raw A Seurat object containing raw data.
+#' @param xe_purified A Seurat object containing purified data, typically generated using \code{purify_counts_with_rctd()}.
+#' @param threshold A numeric threshold below which cells are considered contaminated and replaced by their purified profiles.
+#'   Currently accepts a single value, but may support a cell-type-specific vector in the future. #TODO
+#' @param score_name The name of the metadata column to use for scoring contamination. Must match one of:
+#'   \code{"neighborhood_weights_second_type"}, \code{"second_type_neighbors_N"}, or \code{"second_type_neighbors_no_reject_N"}.
+#' @param spot_class_key Metadata column in \code{xe_raw} and \code{xe_purified} used to identify 'reject' cells.
+#' @param DO_swap_lables Logical; if \code{TRUE}, swaps the first and second cell type labels for cells whose assigned label
+#'   disagrees with their transcriptomic neighborhood label.
+#' @param default_assay Name of the default assay to set in the output Seurat object.
 #'
-#' @param xe_raw raw seurat object
-#' @param xe_purified purified seurat object (post \code{purify_counts_with_rctd})
-#' @param threshold value below which cell is considered as contaminated and is replaced by purified profile.  For the moment, it's a single value, but should accept cell-type-specific vector later on #TODO
-#' @param score_name name of the param to threshold on
-#' @param DO_swap_lables A logical indicating whether to swap first and second cell types for cells which label does not agree with its transcriptomic neighborhod lable
+#' @return A Seurat object containing merged and quality-filtered expression data.
 #'
 #' @export
+
 
 balance_raw_and_purified_data_by_score <- function(
     xe_raw,
@@ -107,6 +115,7 @@ balance_raw_and_purified_data_by_score <- function(
 #' @param xe_purified A purified Seurat object, typically post \code{purify_counts_with_rctd}, containing corrected cell profiles.
 #' @param spot_class_key A character string specifying the metadata column name in \code{xe_raw} that indicates the spot classification (default: `"spot_class"`).
 #' @param DO_swap_lables A logical indicating whether to swap first and second cell types for cells which label does not agree with its transcriptomic neighborhod lable
+#' @param default_assay Name of the default assay to set in the output Seurat object.
 #'
 #' @return A balanced Seurat object with a merged count matrix where:
 #' \itemize{

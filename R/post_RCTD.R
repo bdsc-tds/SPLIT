@@ -1,4 +1,4 @@
-#' Updates `score_mat` of the `Run.RCTD` output
+#' Updates `score_mat` of the `Run.RCTD` output  (Deprecated)
 #'
 #' Adds `singlet_scores` as a diagonal and removes cell types with a low weight in full cell-type decomposition.
 #'
@@ -6,15 +6,13 @@
 #' from the candidate list if their corresponding weight is below a user-defined threshold. The updated
 #' `score_mat` and `singlet_scores` are saved in the `rctd` object.
 #'
-#' @param rctd An object resulting from \link[spacerx]{Run.RCTD}.
+#' @param rctd An object resulting from \link[spacexr]{Run.RCTD}.
 #' @param min_weight A threshold (numeric) to keep cell types as candidates. Cell types with a weight below this
 #'        threshold are removed from the `score_mat`. Default is 0.01, which is the same as in `Run.RCTD`.
 #' @param verbose Logical. If `TRUE`, the function will print messages about removed low-weight cell types.
 #'        Default is `FALSE`.
 #'
 #' @return An updated `rctd` object with modified `score_mat` and `singlet_scores`.
-#'
-
 
 update_score_mat_RCTD <- function(
     rctd,
@@ -23,6 +21,12 @@ update_score_mat_RCTD <- function(
     BPPARAM = bpparam(),
     n_workers = NULL
 ){
+  # Deprecated: This function is no longer used and will be removed in a future release.
+  intermediate_function <- function(...) {
+    warning("`update_score_mat_RCTD()` is deprecated and no longer used. It will be removed in a future version.", call. = FALSE)
+    invisible(NULL)
+  }
+
   score_mat        <- rctd@results$score_mat
   weights          <- rctd@results$weights
   singlet_scores   <- rctd@results$singlet_scores
@@ -33,9 +37,16 @@ update_score_mat_RCTD <- function(
   cell_types <- colnames(weights)
 
   if (is.null(n_workers)) {
-    n_workers <- multicoreWorkers() - 1
+    n_workers <- min(4, BiocParallel::multicoreWorkers() - 1)
   }
-  param <- MulticoreParam(workers = n_workers)
+
+
+  if (.Platform$OS.type == "windows") {
+    BPPARAM <- BiocParallel::SnowParam(workers = n_workers, type = "SOCK")
+  } else {
+    BPPARAM <- BiocParallel::MulticoreParam(workers = n_workers)
+  }
+
 
   result_list <- bplapply(seq_along(score_mat), function(i) {
     smat <- as.matrix(score_mat[[i]])
@@ -64,6 +75,7 @@ update_score_mat_RCTD <- function(
 #' This function updates the `first_type` and `spot_class` fields in the results of an RCTD object for cells classified as highly confident singlets. It ensures accurate cell-type annotations for singlets with only one candidate cell type and updates related fields accordingly.
 #'
 #' @param rctd An `RCTD` object containing spatial transcriptomics annotation results. The object must have the `singlet_scores_xe` field in `rctd@results`. Run `update_score_mat()` prior to using this function if the field is missing.
+#' @param min_weight Minimum weight threshold for the score matrix update (default: 0.05).
 #'
 #' @return An updated `RCTD` object with the following fields modified in `rctd@results$results_df_xe`:
 #' \itemize{
@@ -89,10 +101,11 @@ update_score_mat_RCTD <- function(
 
 
 correct_singlets <- function(
-    rctd
+    rctd,
+    min_weight = 0.01
 ){
-  if(!("singlet_scores_xe" %in% names(rctd@results)))
-    stop("No `singlet_scores_xe` field in rctd@results, run `update_score_mat()` first!")
+  #if(!("singlet_scores_xe" %in% names(rctd@results)))
+  # stop("No `singlet_scores_xe` field in rctd@results, run `update_score_mat()` first!")
 
   if("scond_type" %in% colnames(rctd@results$results_df)){
     rctd@results$results_df$second_type <- rctd@results$results_df$scond_type
@@ -100,7 +113,7 @@ correct_singlets <- function(
   df <- rctd@results$results_df
 
   # select cells with only one candidate cell type
-  len_mat <- lapply(rctd@results$singlet_scores_xe, FUN = length) %>% as.numeric() # number of cell type candidates (dont use singlet score, as that one has not been updated)
+  len_mat <-  apply(rctd@results$weights > min_weight, 1, FUN = sum) %>% as.numeric() # number of cell type candidates (dont use singlet score, as that one has not been updated)
   confident_singlet_idx <- which(len_mat == 1)
   no_cell_type_idx <- which(len_mat == 0)
   rejects_idx <- which(rctd@results$results_df$spot_class == "reject")
@@ -108,17 +121,18 @@ correct_singlets <- function(
   #names(rctd@results$singlet_scores_xe) <- rctd@results$results_df %>% rownames()
 
   #get their singlet scores
-  argmin_singlet_score <- sapply(rctd@results$singlet_scores_xe,
-                                 function(x){
-                                   r <- x %>% which.min() %>% names()
-                                   if(is.null(r))
-                                     r <- NA
-                                   return(r)
-                                   }, simplify = T) %>% unlist()
+  argmax_weight <- apply(rctd@results$weights,
+                         1,
+                         function(x){
+                           r <- x %>% which.max() %>% names()
+                           if(is.null(r))
+                             r <- NA
+                           return(r)
+                         }, simplify = T) %>% unlist()
 
   # update first type to make sure highly confined cells have correct annotation
   first_type_updated <- rctd@results$results_df$first_type
-  first_type_updated[confident_singlet_idx] <- argmin_singlet_score[confident_singlet_idx]
+  first_type_updated[confident_singlet_idx] <- argmax_weight[confident_singlet_idx]
   first_type_updated[no_cell_type_idx] <- NA_character_
 
   # replace second type with NA as now RCTD assigns it to a random cell type (usually the first of the available cell types)
@@ -428,7 +442,6 @@ compute_annotation_confidence <- function(rctd){
 #' alternative annotation computation, entropy calculation, and annotation confidence computation.
 #'
 #' The following processing steps are performed in order:
-#' - Updates the score matrix using `update_score_mat_RCTD()`
 #' - Corrects singlets using `correct_singlets()`
 #' - Updates scores with `update_scores_RCTD()`
 #' - Normalizes the score difference by the number of features using `normalize_score_diff_by_nFeature()`
@@ -447,6 +460,7 @@ compute_annotation_confidence <- function(rctd){
 #'                 overrides calculation based on the data if provided (default: NULL).
 #' @param nCount Optional numeric vector providing the count of features for each cell,
 #'                overrides calculation based on the data if provided (default: NULL).
+#' @param lite Logical; if \code{TRUE}, skips computation of many aux scores that are not used downstream and were meant for the exploration stage
 #'
 #' @return Updated RCTD object with processed results.
 #' @export
@@ -457,18 +471,11 @@ run_post_process_RCTD <- function(
     nFeature_doublet_threshold = 0.5,
     nFeature = NULL,
     nCount = NULL,
-    n_workers = NULL,
     lite = TRUE
 ){
-  message("Updating score_mat ...")
-  rctd <- update_score_mat_RCTD(
-    rctd = rctd,
-    min_weight = min_weight,
-    n_workers = n_workers
-  )
 
   message("Correcting singlets ...")
-  rctd <- correct_singlets(rctd = rctd)
+  rctd <- correct_singlets(rctd = rctd, min_weight = min_weight)
 
   message("Updating scores ...")
   rctd <- update_scores_RCTD(rctd = rctd, lite = lite)

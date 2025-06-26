@@ -53,6 +53,7 @@ decompose_doublet <- function(
 #' @param ct_weights A matrix of cell-type weights for each spot from the RCTD output.
 #' @param cell_type_info A list containing cell-type information used for purification.
 #' @param DO_purify_singlets Logical; if `TRUE`, singlets will also be purified.
+#' @param DO_parallel Logical; if `TRUE`, biocparallel will be used to accelerate computation. For the moment, non-parallel version perform equally well
 #' @param n_workers Integer; the number of parallel workers to use. If `NULL`, it defaults to the number of available cores minus one.
 #' @param chunk_size Integer; the number of barcodes processed in each batch for parallelization. Default is 10,000.
 #'
@@ -65,7 +66,7 @@ decompose_doublet <- function(
 #' @import BiocParallel
 #' @export
 
-purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_info, DO_purify_singlets, n_workers = NULL, chunk_size = 10000) {
+purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_info, DO_purify_singlets, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
 
   is.certain <- c("doublet_certain")
   if(DO_purify_singlets){
@@ -75,12 +76,21 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   doublets_certain    <- results_df[results_df$spot_class %in% is.certain,] %>% rownames()
   doublets_uncertain  <- results_df[results_df$spot_class %in% c("doublet_uncertain"),] %>% rownames()
 
-  if (is.null(n_workers)) {
-    n_workers <- multicoreWorkers() - 1
+  if(DO_parallel){
+    if (is.null(n_workers)) {
+      n_workers <- min(4, BiocParallel::multicoreWorkers() - 1)
+    }
+    if (.Platform$OS.type == "windows") {
+      BPPARAM <- BiocParallel::SnowParam(workers = n_workers, type = "SOCK")
+    } else {
+      BPPARAM <- BiocParallel::MulticoreParam(workers = n_workers)
+    }
+  } else {
+    BPPARAM <- NULL
   }
-  param <- MulticoreParam(workers = n_workers)
 
   gene_list <- intersect(rownames(counts), rownames(cell_type_info[[1]]))
+  print(length(gene_list))
   print(length(gene_list))
   # Function to decompose certain doublets
   decompose_certain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
@@ -156,25 +166,56 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
   # Helper function to process chunks
-  process_chunks <- function(barcodes, decompose_func) {
+  process_chunks <- function(
+    barcodes, decompose_func,
+    parallel = FALSE,
+    BPPARAM = NULL
+  ) {
+
+    if (length(barcodes) == 0) {
+      warning("No barcodes provided. Returning empty result.")
+      return(list())
+    }
+
     results_list <- list()
 
     for (i in seq(1, length(barcodes), by = chunk_size)) {
       cat(round(i * 100 / length(barcodes)), "%\n")
 
-      # Select only relevant barcodes for this chunk
+      # Select chunk of barcodes
       chunk_barcodes <- barcodes[i:min(i + chunk_size - 1, length(barcodes))]
 
+      # Subset once per chunk to avoid copying large matrix per worker
+      counts_chunk     <- counts[, chunk_barcodes, drop = FALSE]
+      results_chunk_df <- results_df[chunk_barcodes, , drop = FALSE]
+      weights_chunk    <- ct_weights[chunk_barcodes, , drop = FALSE]
 
+      # Build list of per-barcode input for parallel loop
+      inputs <- lapply(seq_along(chunk_barcodes), function(j) {
+        list(
+          count  = counts_chunk[, j, drop = FALSE],
+          result = results_chunk_df[j, , drop = FALSE],
+          weight = weights_chunk[j, ]
+        )
+      })
 
-      # Process in parallel, passing only the subsetted counts
-      chunk_results <- bplapply(
-        chunk_barcodes,
-        function(barcode) {
-          decompose_func(counts[, barcode, drop = FALSE], results_df[barcode,], ct_weights[barcode,], gene_list, cell_type_info)
-        },
-        BPPARAM = param
-      )
+      # Define lightweight worker function
+      worker_fun <- function(input) {
+        decompose_func(
+          input$count,
+          input$result,
+          input$weight,
+          gene_list,
+          cell_type_info
+        )
+      }
+
+      # Run
+      chunk_results <- if (parallel) {
+        bplapply(inputs, worker_fun, BPPARAM = BPPARAM)
+      } else {
+        lapply(inputs, worker_fun)
+      }
 
       results_list <- c(results_list, chunk_results)
     }
@@ -186,18 +227,33 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 
   # Process certain doublets
   cat("Processing certain doublets...\n")
-  certain_results <- process_chunks(doublets_certain, decompose_certain)
-  res_certain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = length(doublets_certain), dimnames = list(gene_list, doublets_certain))
-  for (res in certain_results) {
-    res_certain_mtrx[, res$barcode] <- res$res
+  cat(length(doublets_certain), "\n")
+
+  if(length(doublets_certain) > 0){
+    certain_results <- process_chunks(doublets_certain, decompose_certain, parallel = DO_parallel, BPPARAM = BPPARAM)
+    res_certain_mtrx <- do.call(cbind, lapply(certain_results, function(res) {
+      out <- res$res
+      names(out) <- gene_list
+      out
+    }))
+    colnames(res_certain_mtrx) <- vapply(certain_results, function(res) res$barcode, character(1))
+  } else {
+    res_certain_mtrx <- NULL
   }
 
   # Process uncertain doublets
   cat("Processing uncertain doublets...\n")
-  uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain)
-  res_uncertain_mtrx <- matrix(NA, nrow = length(gene_list), ncol = length(doublets_uncertain), dimnames = list(gene_list, doublets_uncertain))
-  for (res in uncertain_results) {
-    res_uncertain_mtrx[, res$barcode] <- res$res
+  cat(length(doublets_uncertain), "\n")
+  if(length(doublets_uncertain) > 0){
+    uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain, parallel = DO_parallel, BPPARAM = BPPARAM)
+    res_uncertain_mtrx <- do.call(cbind, lapply(uncertain_results, function(res) {
+      out <- res$res
+      names(out) <- gene_list
+      out
+    }))
+    colnames(res_uncertain_mtrx) <- vapply(uncertain_results, function(res) res$barcode, character(1))
+  } else {
+    res_uncertain_mtrx <- NULL
   }
 
   # Combine results
@@ -220,14 +276,17 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   #purified <- purified[,colnames(counts)]
   cell_meta <- results_df[colnames(purified),]
 
-  cell_meta$purification_status <- "purified"
-  if(!DO_purify_singlets){
-    cell_meta$purification_status[cell_meta$spot_class == "singlet"] <- "raw"
+  if(nrow(cell_meta) > 0){
+    cell_meta$purification_status <- "purified"
+    if(!DO_purify_singlets){
+      cell_meta$purification_status[cell_meta$spot_class == "singlet"] <- "raw"
+    }
+    cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
+
+    cell_meta$cell_id <- rownames(cell_meta)
+  } else {
+    warning("No cells were purified!")
   }
-  cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
-
-  cell_meta$cell_id <- rownames(cell_meta)
-
   return(list(purified_counts = purified, cell_meta = cell_meta))
 }
 
@@ -239,6 +298,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 #' @param counts A matrix of gene expression counts, where rows represent genes and columns represent cell IDs.
 #' @param rctd RCTD output
 #' @param DO_purify_singlets Logical; if `TRUE`, singlets will also be purified.
+#' @param DO_parallel Logical; if `TRUE`, biocparallel will be used to accelerate computation. For the moment, non-parallel version perform equally well
 #' @param n_workers Integer; the number of parallel workers to use. If `NULL`, it defaults to the number of available cores minus one.
 #' @param chunk_size Integer; the number of barcodes processed in each batch for parallelization. Default is 10,000.
 #'
@@ -251,7 +311,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 #' @import BiocParallel
 #' @export
 
-purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size = 10000) {
+purify <- function(counts, rctd, DO_purify_singlets, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
 
   results_df <- rctd@results$results_df
 
@@ -270,6 +330,7 @@ purify <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_siz
     ct_weights = ct_weights,
     cell_type_info = cell_type_info,
     DO_purify_singlets = DO_purify_singlets,
+    DO_parallel = DO_parallel,
     n_workers = n_workers,
     chunk_size = chunk_size
   )
