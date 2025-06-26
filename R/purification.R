@@ -171,6 +171,12 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
     parallel = FALSE,
     BPPARAM = NULL
   ) {
+
+    if (length(barcodes) == 0) {
+      warning("No barcodes provided. Returning empty result.")
+      return(list())
+    }
+
     results_list <- list()
 
     for (i in seq(1, length(barcodes), by = chunk_size)) {
@@ -222,24 +228,33 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   # Process certain doublets
   cat("Processing certain doublets...\n")
   cat(length(doublets_certain), "\n")
-  certain_results <- process_chunks(doublets_certain, decompose_certain, parallel = DO_parallel, BPPARAM = BPPARAM)
-  res_certain_mtrx <- do.call(cbind, lapply(certain_results, function(res) {
-    out <- res$res
-    names(out) <- gene_list
-    out
-  }))
-  colnames(res_certain_mtrx) <- vapply(certain_results, function(res) res$barcode, character(1))
+
+  if(length(doublets_certain) > 0){
+    certain_results <- process_chunks(doublets_certain, decompose_certain, parallel = DO_parallel, BPPARAM = BPPARAM)
+    res_certain_mtrx <- do.call(cbind, lapply(certain_results, function(res) {
+      out <- res$res
+      names(out) <- gene_list
+      out
+    }))
+    colnames(res_certain_mtrx) <- vapply(certain_results, function(res) res$barcode, character(1))
+  } else {
+    res_certain_mtrx <- NULL
+  }
 
   # Process uncertain doublets
   cat("Processing uncertain doublets...\n")
   cat(length(doublets_uncertain), "\n")
-  uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain, parallel = DO_parallel, BPPARAM = BPPARAM)
-  res_uncertain_mtrx <- do.call(cbind, lapply(uncertain_results, function(res) {
-    out <- res$res
-    names(out) <- gene_list
-    out
-  }))
-  colnames(res_uncertain_mtrx) <- vapply(uncertain_results, function(res) res$barcode, character(1))
+  if(length(doublets_uncertain) > 0){
+    uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain, parallel = DO_parallel, BPPARAM = BPPARAM)
+    res_uncertain_mtrx <- do.call(cbind, lapply(uncertain_results, function(res) {
+      out <- res$res
+      names(out) <- gene_list
+      out
+    }))
+    colnames(res_uncertain_mtrx) <- vapply(uncertain_results, function(res) res$barcode, character(1))
+  } else {
+    res_uncertain_mtrx <- NULL
+  }
 
   # Combine results
   cat("Combaning doublets results ...\n")
@@ -261,14 +276,17 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   #purified <- purified[,colnames(counts)]
   cell_meta <- results_df[colnames(purified),]
 
-  cell_meta$purification_status <- "purified"
-  if(!DO_purify_singlets){
-    cell_meta$purification_status[cell_meta$spot_class == "singlet"] <- "raw"
+  if(nrow(cell_meta) > 0){
+    cell_meta$purification_status <- "purified"
+    if(!DO_purify_singlets){
+      cell_meta$purification_status[cell_meta$spot_class == "singlet"] <- "raw"
+    }
+    cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
+
+    cell_meta$cell_id <- rownames(cell_meta)
+  } else {
+    warning("No cells were purified!")
   }
-  cell_meta$purification_status[is.na(cell_meta$second_type)] <- "raw" # Very confident singlets are not purified
-
-  cell_meta$cell_id <- rownames(cell_meta)
-
   return(list(purified_counts = purified, cell_meta = cell_meta))
 }
 
