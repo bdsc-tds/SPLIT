@@ -20,7 +20,7 @@
 decompose_doublet <- function(
     bead, weights, gene_list, cell_type_info, type1, cell_types
 ){
-  bead     <- bead[gene_list]
+  #bead     <- bead[gene_list]
 
   N_genes  <- length(gene_list)
   epsilon  <- 1e-10
@@ -34,13 +34,10 @@ decompose_doublet <- function(
 
   denom       <- rowSums(sweep(as.matrix(cell_type_info[[1]][gene_list,cell_types]), 2, weights[cell_types], FUN = "*")) + epsilon
   posterior_1 <- (weights[type1] * cell_type_info[[1]][gene_list,type1] + epsilon/N_cell_types) / denom
-  expect_1    <- posterior_1 * bead
-#  expect_2    <- bead - expect_1
-  variance    <- expect_1 * (1 - posterior_1)
-
-  return(list(expect_1 = expect_1,
-             # expect_2 = expect_2,
-              variance = variance))
+  vec <- posterior_1 * bead  # vector of length G, mostly 0
+  nz_idx <- which(as.numeric(vec) != 0)
+  vec_sparse <- Matrix::sparseVector(i = nz_idx, x = vec[nz_idx], length = length(vec))
+  return(vec_sparse)
 }
 
 
@@ -68,6 +65,8 @@ decompose_doublet <- function(
 
 purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_info, DO_purify_singlets, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
 
+  sparse <- inherits(counts, "sparseMatrix")
+
   is.certain <- c("doublet_certain")
   if(DO_purify_singlets){
     is.certain <- c(is.certain, "singlet")
@@ -89,14 +88,12 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
     BPPARAM <- NULL
   }
 
-  gene_list <- intersect(rownames(counts), rownames(cell_type_info[[1]]))
-  print(length(gene_list))
-  print(length(gene_list))
+  gene_list <- rownames(counts)
+
   # Function to decompose certain doublets
   decompose_certain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
     tryCatch({
-
-      bead <- bead[gene_list, ]
+      #bead <- bead[gene_list,]
       barcode <- rownames(results_df_bead)[1]
       type1 <- as.vector(results_df_bead[barcode, "first_type"])
       type2 <- as.vector(results_df_bead[barcode, "second_type"])
@@ -105,7 +102,11 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
       w2 <- as.vector(results_df_bead[barcode, "weight_second_type"])
 
       if(is.na(type2)){ # highly confident singlet -> Do Not Purify!
-        return(list(barcode = barcode, res = bead))
+
+        ###
+        nz_idx <- which(as.numeric(bead) != 0)
+        vec_sparse <- Matrix::sparseVector(i = nz_idx, x = bead[nz_idx], length = length(bead))
+        return(list(barcode = barcode, res = vec_sparse))
       }
 
       if(is.na(w2)){
@@ -126,7 +127,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
         type1,
         c(type1, type2)
       )
-      return(list(barcode = barcode, res = doub_res$expect_1))
+      return(list(barcode = barcode, res = doub_res))
     }, error = function(e) {
       message(sprintf("Error processing barcode %s: %s", barcode, e$message))
       return(NULL)
@@ -137,13 +138,15 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   decompose_uncertain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
     tryCatch({
 
-      bead <- bead[gene_list,]
+      #bead <- bead[gene_list,]
       barcode <- rownames(results_df_bead)[1]
       type1 <- as.vector(results_df_bead[barcode, "first_type"])
       type2 <- as.vector(results_df_bead[barcode, "second_type"])
 
       if(is.na(type2)){ # highly confident singlet -> Do Not Purify!
-        return(list(barcode = barcode, res = bead))
+        nz_idx <- which(as.numeric(bead) != 0)
+        vec_sparse <- Matrix::sparseVector(i = nz_idx, x = bead[nz_idx], length = length(bead))
+        return(list(barcode = barcode, res = vec_sparse))
       }
 
       wgts <- ct_weights_bead
@@ -158,7 +161,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
         type1,
         types
       )
-      return(list(barcode = barcode, res = doub_res$expect_1))
+      return(list(barcode = barcode, res = doub_res))
     }, error = function(e) {
       message(sprintf("Error processing barcode %s: %s", barcode, e$message))
       return(NULL)
@@ -186,7 +189,8 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
       chunk_barcodes <- barcodes[i:min(i + chunk_size - 1, length(barcodes))]
 
       # Subset once per chunk to avoid copying large matrix per worker
-      counts_chunk     <- counts[, chunk_barcodes, drop = FALSE]
+      counts_chunk     <- counts[gene_list, chunk_barcodes, drop = FALSE]
+      counts_chunk     <- as(counts_chunk, "dgCMatrix")
       results_chunk_df <- results_df[chunk_barcodes, , drop = FALSE]
       weights_chunk    <- ct_weights[chunk_barcodes, , drop = FALSE]
 
@@ -225,48 +229,102 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
 
+  # Preallocate sparse matrix for result list
+  build_sparse_result_matrix <- function(results_list, gene_list) {
+    message("Building sparse matrix from sparseVectors...")
+
+    n_genes <- length(gene_list)
+    n_cells <- length(results_list)
+
+    i_vec <- integer(0)
+    j_vec <- integer(0)
+    x_vec <- numeric(0)
+    col_ids <- character(n_cells)
+
+    nz <- 1L
+
+    n <- length(results_list)
+
+    for (j in seq_along(results_list)) {
+      res <- results_list[[j]]
+      if (is.null(res) || is.null(res$res)) next
+
+      sv <- res$res
+      if (!inherits(sv, "dsparseVector")) {
+        stop(sprintf("Expected dsparseVector, got %s", class(sv)))
+      }
+
+      n_nz <- length(sv@i)
+      if (n_nz > 0) {
+        i_vec <- c(i_vec, sv@i)
+        j_vec <- c(j_vec, rep.int(j, n_nz))
+        x_vec <- c(x_vec, sv@x)
+      }
+
+      col_ids[j] <- res$barcode
+
+      if (j %% 10000 == 0 || j == n) {
+        cat(sprintf("Processed %d / %d\n", j, n))
+      }
+    }
+
+    if (length(i_vec) == 0L) {
+      warning("No non-zero entries found. Returning empty sparse matrix.")
+      return(Matrix::Matrix(0, nrow = n_genes, ncol = n_cells,
+                            dimnames = list(gene_list, col_ids), sparse = TRUE))
+    }
+
+    sparse_mat <- Matrix::sparseMatrix(
+      i = i_vec,
+      j = j_vec,
+      x = x_vec,
+      dims = c(n_genes, n_cells),
+      dimnames = list(gene_list, col_ids)
+    )
+
+    return(sparse_mat)
+  }
+
+
+
   # Process certain doublets
+  all_doublet_results <- list()
+  nz <- 1
+
   cat("Processing certain doublets...\n")
   cat(length(doublets_certain), "\n")
 
-  if(length(doublets_certain) > 0){
-    certain_results <- process_chunks(doublets_certain, decompose_certain, parallel = DO_parallel, BPPARAM = BPPARAM)
-    res_certain_mtrx <- do.call(cbind, lapply(certain_results, function(res) {
-      out <- res$res
-      names(out) <- gene_list
-      out
-    }))
-    colnames(res_certain_mtrx) <- vapply(certain_results, function(res) res$barcode, character(1))
-  } else {
-    res_certain_mtrx <- NULL
+  for (r in process_chunks(doublets_certain, decompose_certain, parallel = DO_parallel, BPPARAM = BPPARAM)) {
+    all_doublet_results[[nz]] <- r
+    nz <- nz + 1
   }
 
-  # Process uncertain doublets
   cat("Processing uncertain doublets...\n")
   cat(length(doublets_uncertain), "\n")
-  if(length(doublets_uncertain) > 0){
-    uncertain_results <- process_chunks(doublets_uncertain, decompose_uncertain, parallel = DO_parallel, BPPARAM = BPPARAM)
-    res_uncertain_mtrx <- do.call(cbind, lapply(uncertain_results, function(res) {
-      out <- res$res
-      names(out) <- gene_list
-      out
-    }))
-    colnames(res_uncertain_mtrx) <- vapply(uncertain_results, function(res) res$barcode, character(1))
-  } else {
-    res_uncertain_mtrx <- NULL
+
+  for (r in process_chunks(doublets_uncertain, decompose_uncertain, parallel = DO_parallel, BPPARAM = BPPARAM)) {
+    all_doublet_results[[nz]] <- r
+    nz <- nz + 1
   }
+
+  print("object.size(all_doublet_results): ")
+  print(object.size(all_doublet_results))
+  #return(all_doublet_results)
 
   # Combine results
   cat("Combaning doublets results ...\n")
-  purified <- cbind(res_certain_mtrx, res_uncertain_mtrx)
-  cell_ids <- c(colnames(res_certain_mtrx), colnames(res_uncertain_mtrx))
+  purified <- build_sparse_result_matrix(all_doublet_results, gene_list)
+  cell_ids <- colnames(purified)
+
+  #return(purified)
 
   # Process singlets
   if(!DO_purify_singlets){
     cat("Processing singlets...\n")
-    singlets <- results_df[results_df$spot_class == "singlet",]
-    res_singlet_mtrx <- counts[gene_list, rownames(singlets)]
+    singlets <- results_df[results_df$spot_class == "singlet", , drop = FALSE]
+    res_singlet_mtrx <- Matrix::Matrix(counts[gene_list, rownames(singlets), drop = FALSE], sparse = sparse)
     purified <- cbind(purified, res_singlet_mtrx)
+
     cell_ids <- c(cell_ids, colnames(res_singlet_mtrx))
   }
 
@@ -311,7 +369,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 #' @import BiocParallel
 #' @export
 
-purify <- function(counts, rctd, DO_purify_singlets, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
+purify <- function(counts, rctd, DO_purify_singlets, gene_list = NULL, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
 
   results_df <- rctd@results$results_df
 
@@ -322,7 +380,14 @@ purify <- function(counts, rctd, DO_purify_singlets, DO_parallel = FALSE, n_work
   ct_weights <- rctd@results$weights
   ct_weights <- ct_weights[common_cells, colnames(cell_type_info[[1]])]
 
-  counts <- counts[,common_cells]
+  if(is.null(gene_list)){
+    gene_list <- intersect(rownames(counts), rownames(cell_type_info[[1]]))
+  } else{
+    gene_list <- gene_list[gene_list %in% intersect(rownames(counts), rownames(cell_type_info[[1]]))]
+  }
+
+  counts <- counts[gene_list, common_cells]
+  print(dim(counts))
 
   return(purify_counts_with_rctd(
     counts = counts,
