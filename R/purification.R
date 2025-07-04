@@ -89,6 +89,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
   gene_list <- rownames(counts)
+  cat("N_genes = ", length(gene_list))
 
   # Function to decompose certain doublets
   decompose_certain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
@@ -236,14 +237,16 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
     n_genes <- length(gene_list)
     n_cells <- length(results_list)
 
-    i_vec <- integer(0)
-    j_vec <- integer(0)
-    x_vec <- numeric(0)
+    message("Computing N nz...")
+    nnz_total <- sum(sapply(results_list, function(res) if (!is.null(res$res)) length(res$res@i) else 0))
+    message(" DONE\n")
+
+    i_vec <- integer(nnz_total)
+    j_vec <- integer(nnz_total)
+    x_vec <- numeric(nnz_total)
     col_ids <- character(n_cells)
 
-    nz <- 1L
-
-    n <- length(results_list)
+    counter <- 1L
 
     for (j in seq_along(results_list)) {
       res <- results_list[[j]]
@@ -254,19 +257,34 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
         stop(sprintf("Expected dsparseVector, got %s", class(sv)))
       }
 
+      if (length(sv) != n_genes) {
+        stop(sprintf("Vector at column %d has %d genes, expected %d", j, length(sv), n_genes))
+      }
+      if (any(sv@i > n_genes)) {
+        warning(sprintf("Invalid sv@i at column %d: max index %d, length %d",
+                        j, max(sv@i), length(sv)))
+      }
+
       n_nz <- length(sv@i)
       if (n_nz > 0) {
-        i_vec <- c(i_vec, sv@i)
-        j_vec <- c(j_vec, rep.int(j, n_nz))
-        x_vec <- c(x_vec, sv@x)
+        idx <- counter:(counter + n_nz - 1)
+        i_vec[idx] <- sv@i
+        j_vec[idx] <- rep.int(j, n_nz)
+        x_vec[idx] <- sv@x
+        counter <- counter + n_nz
       }
 
       col_ids[j] <- res$barcode
 
-      if (j %% 10000 == 0 || j == n) {
-        cat(sprintf("Processed %d / %d\n", j, n))
+      if (j %% 10000 == 0 || j == n_cells) {
+        cat(sprintf("Processed %d / %d\n", j, n_cells))
       }
     }
+
+    # Trim to actual used size
+    i_vec <- i_vec[1:(counter - 1)]
+    j_vec <- j_vec[1:(counter - 1)]
+    x_vec <- x_vec[1:(counter - 1)]
 
     if (length(i_vec) == 0L) {
       warning("No non-zero entries found. Returning empty sparse matrix.")
@@ -291,6 +309,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   all_doublet_results <- list()
   nz <- 1
 
+  tak <- Sys.time()
   cat("Processing certain doublets...\n")
   cat(length(doublets_certain), "\n")
 
@@ -307,14 +326,22 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
     nz <- nz + 1
   }
 
-  print("object.size(all_doublet_results): ")
-  print(object.size(all_doublet_results))
-  #return(all_doublet_results)
+  tik <- Sys.time()
+  cat("Purification completed in ", tik-tak)
+  cat("object.size(all_doublet_results): ")
+  cat(object.size(all_doublet_results))
+  #return(list(genes = gene_list, counts = all_doublet_results))
 
   # Combine results
+  tak <- Sys.time()
   cat("Combaning doublets results ...\n")
   purified <- build_sparse_result_matrix(all_doublet_results, gene_list)
   cell_ids <- colnames(purified)
+
+  tik <- Sys.time()
+  cat("Combining results completed in ", tik-tak)
+  cat("object.size(purified): ")
+  cat(object.size(purified))
 
   #return(purified)
 
