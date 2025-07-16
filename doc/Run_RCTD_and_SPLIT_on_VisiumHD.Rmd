@@ -1,0 +1,505 @@
+---
+title: "RCTD Annotation and SPLIT Purification for VisiumHD Sample"
+output: 
+  rmarkdown::github_document:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Run RCTD and SPLIT on VisiumHD}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+This vignette demonstrates how to annotate VisiumHD spatial transcriptomics data using RCTD, followed by **purification with SPLIT**.
+
+⚠️ **Important Notice**
+
+SPLIT currently requires **doublet-mode** RCTD results generated with the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or the faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD).  
+🚧 **Compatibility with the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html) of spacexr is under development.**
+
+# Overview
+
+In this vignette, we:
+
+1. **Run RCTD Annotation**
+    - We begin by running RCTD annotation on a VisiumHD sample, using matched Chromium data from a public 10x Genomics dataset as the reference.
+    
+2. **Apply Default SPLIT Purification**
+    - The default SPLIT purification method is then applied to clean the annotated VisiumHD sample, refining the initial annotations.
+
+3. **Apply Spatially-Aware SPLIT**
+    - We apply spatially-aware SPLIT, which purifies cells showing signs of contamination based on local spatial diffusion patterns.
+    
+4. **Apply SPLIT-Shift**
+    - Finally, SPLIT-shift is applied to swap primary and secondary labels based on transcriptomic neighborhood heterogeneity, improving the accuracy of cell type assignments.
+
+This pipeline assumes that cell type assignments — originally derived from the Chromium reference — are refined and reliable for downstream analysis.
+
+
+```{r libs, message=FALSE}
+if(!requireNamespace("spacexr", quietly = TRUE)){
+  remotes::install_github("dmcable/spacexr") ## or remotes::install_github("jpromeror/spacexr@HD") for implementation of the doublet mode.
+}
+library(spacexr)
+
+if(!requireNamespace("SPLIT", quietly = TRUE)){
+  remotes::install_github("bdsc-tds/SPLIT") 
+}
+library(SPLIT)
+
+library(dplyr)
+library(Seurat)
+library(readxl)
+library(SingleCellExperiment)
+library(httr)
+library(ggplot2)
+library(sf)
+library(stringr)
+```
+
+## Load Data
+
+For this vignette, we use a publicly available VisiumHD dataset from the 10x Genomics database, originating from:
+
+> **Oliveira, M.F.d., Romero, J.P., Chung, M. et al.**
+> *High-definition spatial transcriptomic profiling of immune cell populations in colorectal cancer.*
+> *Nature Genetics* 57, 1512–1523 (2025). 
+> [https://doi.org/10.1038/s41588-025-02193-3](https://doi.org/10.1038/s41588-025-02193-3)
+
+This dataset provides high-resolution spatial transcriptomics data suitable for downstream analysis with RCTD and SPLIT.
+
+---
+
+### Load Chromium Dataset (Reference)
+
+We manually load metadata for the Chromium single-cell dataset and metadata from the same study, which will serve as the **reference** for RCTD annotation.
+
+```{r load-chormium-metadata}
+url <- "https://raw.githubusercontent.com/10XGenomics/HumanColonCancer_VisiumHD/main/MetaData/SingleCell_MetaData.csv.gz"
+temp_file <- tempfile(fileext = ".csv.gz")
+
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+chrom_metadata <- read.csv(temp_file) #%>% as.data.frame()
+rownames(chrom_metadata) <- chrom_metadata$Barcode
+```
+
+Manually load Chromium from 10x 
+```{r load-chromium}
+# read Chromium 
+url <- "https://cf.10xgenomics.com/samples/cell-exp/8.0.0/HumanColonCancer_Flex_Multiplex/HumanColonCancer_Flex_Multiplex_count_filtered_feature_bc_matrix.h5"
+
+temp_file <- tempfile(fileext = ".h5")
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+chrom_counts <- Read10X_h5(temp_file)
+chrom <- CreateSeuratObject(counts = chrom_counts, assay = "RNA", meta.data = chrom_metadata)
+
+chrom <- subset(chrom, subset = QCFilter == "Keep") # remove cell that did not pass QC 
+
+rm(chrom_counts)
+```
+
+#### Choosing annotation level.
+This reference dataset has 2 levels of annotation (ie., `Level1` being the broader and Level2 being more specific). In this tutorial we will use `Level1` for simplicity and acceleration. But if you are using more fine annotation, we  **highly recommended** providing `class_df` parameter into RCTD for more robust RCTD annotation 
+Providing higher-level cell type classes improves RCTD accuracy and **significantly** reduces the number of rejected cells, preserving more cells (rejects are excluded from the downstream analyses and do not undergo SPLIT purification).
+```{r class-df-set}
+chrom$Annotation <- chrom$Level1
+
+# Since we use Level1 annotation, there is no need to provide broader level classes, but if you plan using more fine-grained anootation, rpovide their broadee level to enhance RCTD's robustness. For this dataset it would be:
+if(FALSE){
+  mat <- as.matrix(table(chrom$Level1, chrom$Level2))
+  cell_type_to_class <- apply(mat, 2, function(col) rownames(mat)[which.max(col)])
+  
+  class_df <- data.frame(class = cell_type_to_class)
+}
+```
+
+
+```{r class-df, eval=T}
+# and define colors for reproducibility 
+library(RColorBrewer)
+
+cell_types <- unique(chrom$Annotation)
+colors <- brewer.pal(n = max(3, min(length(cell_types), 12)), name = "Set3")
+# Recycle colors if not enough
+colors <- rep(colors, length.out = length(cell_types))
+pal <- setNames(colors, cell_types)
+```
+
+
+### Load VisiumHD Dataset
+
+We begin by downloading the cell-segmented data from the 10x Genomics website. **Note:** the file is approximately **9 GB**, so you may prefer to download it manually and reference it from a permanent location. You can do this via:
+
+```bash
+curl -O https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Human_Colon_Cancer/Visium_HD_Human_Colon_Cancer_segmented_outputs.tar.gz
+tar -xvzf Visium_HD_Human_Colon_Cancer_segmented_outputs.tar.gz
+```
+
+Or use a tremporary location.
+```{r download-visium, eval = T}
+# download data form 10x counts and coordinates
+url <- "https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Human_Colon_Cancer/Visium_HD_Human_Colon_Cancer_segmented_outputs.tar.gz"
+temp_file <- tempfile(fileext = ".tar.gz")
+output_dir <- tempfile()  # or set to a specific folder path
+
+# Download the file
+GET(url, write_disk(temp_file, overwrite = TRUE))
+
+# Create output directory if needed
+dir.create(output_dir, showWarnings = FALSE)
+
+# Unzip the .tar.gz file
+untar(temp_file, exdir = output_dir)
+
+# Check extracted contents
+list.files(output_dir, recursive = TRUE)
+```
+
+## Read Visium data (counts and cell coordinates)
+```{r load-visium}
+vhd_counts <- Seurat::Read10X_h5(file.path(output_dir, "segmented_outputs/filtered_feature_cell_matrix.h5"))
+
+# get VisiumHD cell coordinates (optionally, RCTD works w/o coordinates as well)
+cell_segmentation_path <- file.path(output_dir, "segmented_outputs/cell_segmentations.geojson")
+cell_segmentation <- st_read(cell_segmentation_path)
+st_crs(cell_segmentation) <- 32632 
+cell_segmentation <- cell_segmentation %>%
+  mutate(cell_name = str_glue("cellid_{str_pad(cell_id, 9, pad = '0')}-1"))
+  
+vhd_coords <- st_centroid(cell_segmentation)
+rownames(vhd_coords) <- vhd_coords$cell_name
+  
+vhd_coords <- vhd_coords %>%
+  mutate(ST_1 = st_coordinates(.)[,1],
+         ST_2 = st_coordinates(.)[,2]) %>%
+  st_set_geometry(NULL) %>% 
+  select(ST_1, ST_2)
+```
+
+
+```{r create-visium-obj}
+## Convert to Seurat to stay consistent with chromium object
+vhd <- CreateSeuratObject(
+  counts = vhd_counts,
+  assay = "VHD",
+  meta.data = vhd_coords
+)
+
+vhd[["spatial"]] <- CreateDimReducObject(vhd_coords[colnames(vhd),] %>% as.matrix(), assay = "VHD", key = "ST_")
+
+vhd$x <- vhd$ST_1
+vhd$y <- vhd$ST_2
+
+vhd <- subset(vhd, subset = nCount_VHD > 100)
+rm(vhd_counts, vhd_coords)
+```
+
+```{r, fig.height=8}
+DimPlot(vhd, reduction = "spatial") # simple visualization
+
+
+ggplot(cell_segmentation) +
+  geom_sf(alpha = .5,) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(title = "Cell Segmentation") +
+  scale_fill_manual(values = pal)
+```
+
+
+#### Downsample VisiumHD Dataset for Faster RCTD (Optional)
+
+Running RCTD can be time-consuming, especially on large datasets like VisiumHD To speed up computation during this tutorial, we optionally provide code to downsample the dataset. We recommend spatial cropping (rather than random sampling) to preserve neighborhood structure, which is important for downstream analysis.
+
+That said, downsampling is **not required **, we provide precomputed RCTD results below so you can skip running RCTD altogether if desired.  
+
+```{r downsampling}
+DO_subset_vhd <- TRUE 
+X_lim <- c(45000, 60000) # cropping area 
+Y_lim <- c(10000, 20000) # cropping area 
+
+if(DO_subset_vhd){
+  vhd <- subset(vhd, subset = x > min(X_lim) & x < max(X_lim) & y > min(Y_lim) & y < max(Y_lim))
+} 
+```
+
+# RCDT annotation
+Run RCTD Annotation on VisiumHD
+Running RCTD on large datasets can be computationally intensive and may take several hours. To streamline the workflow, we provide the full code for reproducibility. However, we recommend loading a pre-computed RCTD object by setting `DO_run_RCTD <- FALSE`.
+```{r rctd, eval = T}
+DO_run_RCTC <- FALSE # FALSE to load pre-computed results
+
+common_genes <- intersect(rownames(vhd), rownames(chrom))
+ref_labels <- chrom$Annotation %>% as.factor()
+
+ref.obj <- Reference(GetAssayData(chrom, "RNA", "counts")[common_genes, ],
+                     cell_types = ref_labels, require_int = TRUE)
+
+test.obj <- SpatialRNA(coords = vhd@reductions$spatial@cell.embeddings %>% as.data.frame(),
+                       counts = GetAssayData(vhd, assay = "VHD", layer = "counts")[common_genes, ],
+                       require_int = TRUE)
+
+if(!exists("class_df")) 
+  class_df <- NULL
+
+rctd <- create.RCTD(
+  test.obj, 
+  ref.obj, 
+  max_cores = 10, 
+  class_df = class_df # highly recommended if annotation provided at the fine level
+  )
+
+if(DO_run_RCTC){
+  RCTD <- run.RCTD(RCTD, doublet_mode = "doublet")
+  saveRDS(RCTD, "~/precomp_rctd_class_aware.rds")
+} else {
+  message("reading precomp RCTD results")
+  
+  # Install googledrive if you haven't already
+  if (!requireNamespace("googledrive", quietly = TRUE)) {
+    install.packages("googledrive")
+  }
+  library(googledrive)
+  drive_deauth()
+  # Define the file ID from the Google Drive link
+  file_id <- "1wgwYQVdYzJbsAt0bYW-Is9eHnCSTzNMh"
+  local_path <- tempfile(fileext = ".rds")
+  drive_download(as_id(file_id), path = local_path, overwrite = TRUE)
+  RCTD <- readRDS(local_path)
+}
+
+rm(chrom)
+gc()
+```
+
+
+Visualize RCTD Annotation
+Post-process RCDT output and add results into VisiumHD object
+```{r post-rctd}
+RCTD <- SPLIT::run_post_process_RCTD(RCTD)
+vhd <- AddMetaData(vhd, RCTD@results$results_df)
+vhd <- subset(vhd, subset = nCount_VHD >= 100)
+```
+
+
+```{r post-rctd-spot-class-composition}
+cat("Proprtion of spot classes")
+(vhd$spot_class %>% table())/ncol(vhd)*100 
+```
+
+```{r plot-raw-visiumHD, fig.width=16, message=FALSE}
+
+vhd <- vhd %>% NormalizeData() 
+vhd <- vhd %>% FindVariableFeatures()
+vhd <- vhd %>% ScaleData()
+vhd <- vhd %>% RunPCA()
+vhd <- vhd %>% RunUMAP(dims = 1:50)
+
+p1 <- UMAPPlot(vhd, group.by = "first_type", label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+p2 <- UMAPPlot(vhd, group.by = "second_type", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+p3 <- UMAPPlot(vhd, group.by = "spot_class") + theme_void() + theme(aspect.ratio = 1, legend.position = "right")
+ 
+p1 | p2 | p3
+
+```
+Spatial Visualization
+```{r spatial-plot, fig.width=12, warning=FALSE}
+DimPlot(vhd, reduction = "spatial", group.by = "first_type", raster = TRUE, cols = pal) + coord_fixed()
+
+cell_segmentation <- cell_segmentation %>%
+  filter(cell_name %in% rownames(vhd@meta.data))
+
+cell_segmentation <- cell_segmentation %>%
+  left_join(
+    vhd@meta.data %>%
+      select(first_type, second_type, spot_class) %>%
+      tibble::rownames_to_column("cell_name"),
+    by = "cell_name"
+  )
+
+ggplot(cell_segmentation) +
+  geom_sf(aes(fill = first_type, color = first_type), alpha = .5) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(title = "Cell Segmentation") +
+  scale_fill_manual(values = pal) +
+  scale_color_manual(values = pal)
+```
+
+# Purification
+## SPLIT (default)
+This section runs the default SPLIT purification and visualizes purified data.
+
+```{r SPLIT, message=FALSE}
+# Run SPLIT purification
+res_split <- purify(
+  counts = GetAssayData(vhd, assay = 'VHD', layer = 'counts'), # or any gene x cells counts matrix
+  rctd = RCTD,
+  DO_parallel = F,
+  n_workers = NULL,
+  chunk_size = 5000,
+  DO_purify_singlets = T # Optional. If TRUE, singlets with an available secondary type are purified the same way as doublets_certain; otherwise, left unchanged.
+)
+```
+
+
+```{r SPLIT-obj, message=FALSE}
+# Create a purified Seurat object
+vhd_purified <- CreateSeuratObject(
+  counts = res_split$purified_counts,
+  meta.data = res_split$cell_meta,
+  assay = "VHD"
+)
+
+# Optional: Filter, normalize and visualize
+vhd_purified <- subset(vhd_purified, subset = nCount_VHD > 100)
+vhd_purified <- vhd_purified %>%
+  NormalizeData() %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA() %>% RunUMAP(dims = 1:50)
+
+```
+### Visually compare results of Raw and SPLIT-Purified data
+```{r plot-raw-split-purified, fig.width=12, message=FALSE}
+p1 <- UMAPPlot(vhd, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Raw VisiumHD data")
+
+p2 <- UMAPPlot(vhd_purified, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "right") + ggtitle("SPLIT-purified VisiumHD data")
+
+p3 <- UMAPPlot(vhd_purified, group.by = c("spot_class")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified VisiumHD data colored by spot class")
+p4 <- UMAPPlot(vhd_purified, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified VisiumHD data colored by purification status")
+
+
+(p1|p2) 
+(p3|p4)
+
+```
+
+## Spatially-aware SPLIT
+SPLIT can leverage spatial information to assess the abundance of secondary signals in the local neighborhood (i.e., local diffusion potential), enabling selective decomposition only when contamination is likely. This spatially informed strategy helps prevent overcorrection of phenotypes that may be underrepresented or absent in the reference. 
+Specifically, we first compute the spatial neighborhood for each cell, then identify and purify cells that have sign of local diffusion of the secondary cell type.
+```{r spatial-nw}
+sp_nw <- SPLIT::build_spatial_network(
+  vhd, 
+  reduction = "spatial",
+  dims = 1:2, 
+  DO_prune = TRUE, 
+  rad_pruning = 50, # remove connections further than 15um
+  k_knn = 20
+  )
+
+sp_nw <- SPLIT::add_spatial_metric(spatial_neighborhood = sp_nw, rctd = RCTD)
+sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
+
+vhd <- AddMetaData(vhd, sp_neigh_df)
+
+rm(sp_nw, sp_neigh_df)
+```
+
+### Visualize local diffusion of secondary cell type 
+The score `neighborhood_weights_second_type` corresponds to the average weight of the secondary cell type in cell's spatial neighborhood.
+```{r plot-neigh-weight-second-type, message=FALSE}
+# Plot magnitude of local diffusion on UMAP
+FeaturePlot(vhd, features = c("neighborhood_weights_second_type")) + theme_void() + theme(aspect.ratio = 1)
+
+# Plot distribution of local diffusion value
+hist(vhd$neighborhood_weights_second_type)
+
+# Plot distribution of local diffusion value per `spot_class`
+vhd@meta.data %>% filter(!is.na(spot_class)) %>% 
+  ggplot(aes(x = spot_class, y = neighborhood_weights_second_type, color = spot_class)) + geom_boxplot() + labs(title = "Local neighbohood diffusion by spot class") + theme_minimal() 
+``` 
+
+We now purify cells that have secondary signal in their spatial neighborhood (e.g., `neighborhood_weights_second_type`) and keep other cells unchanged
+```{r spatially-aware-split, fig.width=12, message=FALSE}
+vhd_purified_balanced_score <- SPLIT::balance_raw_and_purified_data_by_score(
+  xe_raw = vhd,
+  xe_purified = vhd_purified,
+  default_assay = "VHD", # 
+  spot_class_key = "spot_class",
+  threshold = 0.05, # lower -> more cells will be purified
+  score_name = "neighborhood_weights_second_type"
+)
+
+# Optional: Filter, normalize and visualize
+vhd_purified_balanced_score <- subset(vhd_purified_balanced_score, subset = nCount_VHD > 100)
+vhd_purified_balanced_score <- vhd_purified_balanced_score %>%
+  NormalizeData() %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA() %>% RunUMAP(dims = 1:50, verbose = FALSE)
+
+p5 <- UMAPPlot(vhd_purified_balanced_score, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Spatially-aware SPLIT-purified VisiumHD data")
+p6 <- UMAPPlot(vhd_purified_balanced_score, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+
+p5|p6
+```
+
+## SPLIT-shift
+In some cases, the contamination signal is so strong that RCTD assigns the cell to its secondary cell type. To address this, we introduce SPLIT-shift—an approach that refines phenotype assignments by swapping the primary and secondary cell type labels based on transcriptional neighborhood homogeneity.
+
+For this, we need to compute transcriptomics neighborhood 
+```{r transcriptomics-nw}
+tr_nw <- build_transcriptomics_network(
+  vhd,
+  DO_prune = FALSE,
+  k_knn = 100
+)
+tr_nw <- add_transcriptomics_metric(transcriptomics_neighborhood = tr_nw, rctd = RCTD) 
+tr_neigh_df <- neighborhood_analysis_to_metadata(tr_nw)
+vhd <- AddMetaData(vhd, tr_neigh_df)
+
+rm(tr_nw, tr_neigh_df)
+```
+
+And then, we set `DO_swap_lables = TRUE` to allow SPLIT-shift
+```{r run-split-shift}
+vhd_split_shift <- SPLIT::balance_raw_and_purified_data_by_score(
+  xe_raw = vhd,
+  xe_purified = vhd_purified,
+  default_assay = "VHD",
+  spot_class_key = "spot_class",
+  threshold = 0.05, # to be consistent with spatially-aware SPLIT results
+  score_name = "neighborhood_weights_second_type",
+  DO_swap_lables = TRUE
+)
+
+# Optional: Filter, normalize and visualize
+vhd_split_shift <- subset(vhd_split_shift, subset = nCount_VHD > 100)
+vhd_split_shift <- vhd_split_shift %>%
+  SCTransform(assay = "VHD", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:50, verbose = FALSE)
+```
+
+### Visualize SPLIT-shift
+```{r vis-split-shift, fig.width=16, message=FALSE}
+p7 <- UMAPPlot(vhd_split_shift, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("SPLIT-shift-purified VisiumHD data")
+p8 <- UMAPPlot(vhd_split_shift, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+p9 <- UMAPPlot(vhd_split_shift, group.by = c("swap")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+
+p7|p8|p9
+```
+
+```{r vis-split-shift-swap-facet, fig.width=12, message=FALSE}
+# Visualize results faceted by swapping status
+p10 <- UMAPPlot(vhd_split_shift, group.by = c("first_type"), split.by = "swap", raster = F, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-shift-purified VisiumHD data faceted by lable swapping status")
+p10
+```
+
+# Summary
+
+To run SPLIT, you need a single-cell reference with reliable cell type labels, which is used to annotate VisiumHD data using RCTD in doublet mode.  
+We strongly recommend providing a broader-level mapping of the reference cell types to higher-level classes. This helps RCTD produce more robust results and reduces the number of rejected cells, which are excluded from downstream analysis.
+
+After annotation, SPLIT can be run in several **combinable** modes to purify the data:
+
+1. **Default SPLIT** purifies all `doublets_certain`, all `doublets_uncertain`, and—if `DO_purify_singlets = TRUE` — singlets that show signs of a secondary cell type.  
+   Rejected cells are always removed as unreliable.
+
+2. **Spatially-aware SPLIT** purifies any cells that show signs of contamination based on local spatial diffusion — i.e., having secondary signal in their spatial neighborhood.
+
+3. **SPLIT-shift** allows swapping the primary and secondary cell type labels based on transcriptional neighborhood homogeneity.
+
+```{r summary-plot, fig.width=18, fig.height=7, message=FALSE}
+p1 | p2+theme(legend.position = "bottom") | p5 | p7
+```
+
