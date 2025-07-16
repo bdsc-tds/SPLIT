@@ -232,12 +232,12 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 
   # Preallocate sparse matrix for result list
   build_sparse_result_matrix <- function(results_list, gene_list) {
-    message("Building sparse matrix from sparseVectors...")
+    message("Building sparse matrix from sparseVectors... \n")
 
     n_genes <- length(gene_list)
     n_cells <- length(results_list)
 
-    message("Computing N nz...")
+    message("Computing N nz... \n")
     nnz_total <- sum(sapply(results_list, function(res) if (!is.null(res$res)) length(res$res@i) else 0))
     message(" DONE\n")
 
@@ -327,10 +327,9 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
   tik <- Sys.time()
-  cat("Purification completed in ", tik-tak)
-  cat("object.size(all_doublet_results): ")
-  cat(object.size(all_doublet_results))
-  #return(list(genes = gene_list, counts = all_doublet_results))
+  #cat("Purification completed in ", tik-tak)
+  #cat("object.size(all_doublet_results): ")
+  #cat(object.size(all_doublet_results))
 
   # Combine results
   tak <- Sys.time()
@@ -339,11 +338,9 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   cell_ids <- colnames(purified)
 
   tik <- Sys.time()
-  cat("Combining results completed in ", tik-tak)
-  cat("object.size(purified): ")
-  cat(object.size(purified))
-
-  #return(purified)
+  #cat("Combining results completed in ", tik-tak)
+  #cat("object.size(purified): ")
+  #cat(object.size(purified))
 
   # Process singlets
   if(!DO_purify_singlets){
