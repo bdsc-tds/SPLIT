@@ -10,8 +10,8 @@
 
 🚧 **This package is under active development.**\
 ⚡ Use the **Quick Start** guide below to get up and running quickly.\
-📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html).\
-📖 A **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html).
+📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html) (<30 min total runtime on a standard PC, incl. 4 min for SPLIT).\
+🆕🔥 NEW!!! A **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (~30 min total runtime on a standard PC, incl. 10 min for SPLIT).
 
 ------------------------------------------------------------------------
 
