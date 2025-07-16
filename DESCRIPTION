@@ -1,7 +1,7 @@
 Package: SPLIT
 Type: Package
 Title: Spatial Purification of Layered Intracellular Transcripts
-Version: 0.1.1
+Version: 0.1.2
 Authors@R: c(
     person(
       "Mariia", "Bilous",
@@ -19,7 +19,7 @@ Description:
   the package includes methods to refine cell-type annotations based on transcriptomic 
   neighborhood homogeneity. The resulting output contains profiles with reduced 
   contamination and increased cell-type specificity.
-License: MIT
+License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 Depends: R (>= 4.0.0)
