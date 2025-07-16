@@ -339,10 +339,14 @@ normalize_score_diff_by_nFeature <- function(
 
 compute_alternative_annotations <- function(rctd){
 
-  # Compute alternative annotations
-  annot_min_singlet_score <- sapply(rctd@results$singlet_scores, function(x) {
-    names(x)[which.min(x)]  # directly find the name with min singlet score
-  }) %>% unname()
+  if(!is.null(rctd@results$singlet_scores)){
+    # Compute alternative annotations
+    annot_min_singlet_score <- sapply(rctd@results$singlet_scores, function(x) {
+      names(x)[which.min(x)]  # directly find the name with min singlet score
+    }) %>% unname()
+  } else {
+    annot_min_singlet_score <- NA
+  }
 
   annot_max_weight <- apply(rctd@results$weights, 1, function(x) {
     names(x)[which.max(x)] # find the name with max weight
