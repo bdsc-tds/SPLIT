@@ -89,7 +89,7 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
   }
 
   gene_list <- rownames(counts)
-  cat("N_genes = ", length(gene_list))
+  cat("N_genes =", length(gene_list), "\n")
 
   # Function to decompose certain doublets
   decompose_certain <- function(bead, results_df_bead, ct_weights_bead, gene_list, cell_type_info) {
