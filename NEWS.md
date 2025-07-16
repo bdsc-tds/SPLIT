@@ -4,7 +4,7 @@
 - Make `SPLIT::purify()`compatible with large-scale full-transcriptome data (i.e., VisiumHD)
 - Generate vignette of running SPLIT on VisiumHD
 
-All changes are backward compatible and do not affect the results obatained with the earlier version of SPLIT.
+All changes are backward compatible and do not affect the results obtained with the earlier version of SPLIT.
 
 
 # SPLIT 0.1.1
@@ -12,7 +12,7 @@ All changes are backward compatible and do not affect the results obatained with
 - Accelerate and optimaze memory usage in `SPLIT::run_post_process_RCTD()` and `SPLIT::purify()`
 - Fix some bugs in `SPLIT::purify()`
 
-All changes are backward compatible and do not affect the results obatained with the earlier version of SPLIT.
+All changes are backward compatible and do not affect the results obtained with the earlier version of SPLIT.
 
 # SPLIT 0.1.0
 
