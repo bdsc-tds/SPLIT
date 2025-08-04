@@ -204,7 +204,9 @@ add_neighborhood_weight_composition <- function(
   }
 
   # Extract unique cell types
-  cell_types <- neighborhood$first_type %>% as.vector() %>% unique() %>% sort()
+#fix:   cell_types <- neighborhood$first_type %>% as.vector() %>% unique() %>% sort()
+  cell_types <- c(neighborhood$first_type %>% as.vector(), neighborhood$second_type %>% as.vector()) %>% unique() %>% sort()
+  
   # Store `neighborhood_weight_composition` -- the global weight composition of the neighborhood
   neighborhood$neighborhood_weight_composition <- apply(neighborhood$nn_idx, 1, compute_neighborhood_weight_composition, simplify = T) %>% t()
 
