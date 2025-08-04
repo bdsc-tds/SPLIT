@@ -17,7 +17,8 @@ swap_expr <- rlang::expr({
     )
 
   # Replace corrected counts for swapped cells
-  cells_to_swap_correcred_profile <- cells_to_swap_label[cells_to_swap_label %in% colnames(xe_purified)] #intersect(cells_to_swap_label, cells_to_replace_with_purified)
+  purified_cells <- xe_purified@meta.data %>% filter(purification_status == "purified") %>% rownames()
+  cells_to_swap_correcred_profile <- cells_to_swap_label[cells_to_swap_label %in% purified_cells] #intersect(cells_to_swap_label, cells_to_replace_with_purified)
   count_matrix[, cells_to_swap_correcred_profile] <-
     GetAssayData(xe_raw, assay = default_assay, layer = "counts")[common_genes, cells_to_swap_correcred_profile] -
     GetAssayData(xe_purified, assay = default_assay, layer = "counts")[common_genes, cells_to_swap_correcred_profile]
@@ -67,6 +68,8 @@ balance_raw_and_purified_data_by_score <- function(
   if(!spot_class_key %in% colnames(xe_raw@meta.data)){
     stop("`spot_class` is not available in `xe_raw`, please compute it first!")
   }
+
+  xe_raw <- subset(xe_raw, cells = colnames(xe_purified))
 
   cells_to_replace_with_purified <-
     xe_raw@meta.data %>%
