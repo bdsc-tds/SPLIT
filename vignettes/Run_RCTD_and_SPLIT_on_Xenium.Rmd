@@ -128,7 +128,7 @@ class_df <- data.frame(class = cell_type_to_class)
 # and define colors for reproducibility 
 library(RColorBrewer)
 
-cell_types <- unique(chrom$Annotation)
+cell_types <- unique(chrom$Annotation) %>% sort()
 colors <- brewer.pal(n = max(3, min(length(cell_types), 12)), name = "Set3")
 # Recycle colors if not enough
 colors <- rep(colors, length.out = length(cell_types))
@@ -233,7 +233,7 @@ if(DO_run_RCTC){
 ```
 
 Visualize RCTD Annotation
-Post-process RCDT output and add reselts into Xenium object
+Post-process RCDT output and add results into Xenium object
 ```{r post-rctd}
 RCTD <- SPLIT::run_post_process_RCTD(RCTD)
 xe <- AddMetaData(xe, RCTD@results$results_df)
@@ -319,7 +319,7 @@ sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
 
 xe <- AddMetaData(xe, sp_neigh_df)
 
-rm(sp_nw, sp_neigh_df)
+#rm(sp_nw, sp_neigh_df)
 ```
 
 ### Visualize local diffusion of secondary cell type 

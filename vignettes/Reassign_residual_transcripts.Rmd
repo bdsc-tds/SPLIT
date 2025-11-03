@@ -1,0 +1,713 @@
+---
+title: "Reassigning residual trancripts to neighboring cells"
+output: 
+  rmarkdown::github_document:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Run RCTD and SPLIT on Xenium}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+This vignette demonstrates how to reassign residual (filtered out) transcripts to the neighboring cells. For this, we will use the results of the [vignette on running SPLIT on Xenium](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd)
+
+```{r libs, message=FALSE}
+if(!requireNamespace("spacexr", quietly = TRUE)){
+  remotes::install_github("dmcable/spacexr") ## or remotes::install_github("jpromeror/spacexr@HD") for implementation of the doublet mode.
+}
+library(spacexr)
+
+if(!requireNamespace("SPLIT", quietly = TRUE)){
+  remotes::install_github("bdsc-tds/SPLIT") 
+}
+library(SPLIT)
+
+library(dplyr)
+library(Seurat)
+library(SingleCellExperiment)
+library(ggplot2)
+```
+
+### Load Xenium Dataset
+
+We load the Xenium spatial transcriptomics data using the `STexampleData` package, which provides convenient access to example spatial datasets for analysis and demonstration.
+
+```{r load-xenium}
+if(!requireNamespace("STexampleData", quietly = TRUE))
+  remotes::install_github("lmweber/STexampleData")
+xe_full_seu <- STexampleData::Janesick_breastCancer_Xenium_rep1() 
+
+## Convert to Seurat to stay consistent with chromium object
+sp_coords <- spatialCoords(xe_full_seu)
+colnames(sp_coords) <- c("ST_1", "ST_2")
+
+xe <- CreateSeuratObject(
+  counts = counts(xe_full_seu),
+  assay = "Xenium",
+  meta.data = as.data.frame(colData(xe_full_seu))
+)
+
+xe[["spatial"]] <- CreateDimReducObject(sp_coords, assay = "Xenium", key = "ST_")
+
+xe$x <- sp_coords[,1]
+xe$y <- sp_coords[,2]
+rm(xe_full_seu)
+```
+
+You can optionally crop the slice to reduce computations, but we will use the entire dataset.
+```{r downsampling}
+DO_subset_xe <- FALSE 
+X_lim <- c(6000, Inf) # cropping area 
+Y_lim <- c(4000, Inf) # cropping area 
+
+if(DO_subset_xe){
+  xe <- subset(xe, subset = x > min(X_lim) & x < max(X_lim) & y > min(Y_lim) & y < max(Y_lim))
+} 
+```
+
+Download pre-computed RCTD (ie., cell-type annotation) results
+```{r, load-rctd}
+# Install googledrive if you haven't already
+if (!requireNamespace("googledrive", quietly = TRUE)) {
+  install.packages("googledrive")
+}
+library(googledrive)
+drive_deauth()
+# Define the file ID from the Google Drive link
+file_id <- "1pTUKq49JbUFwVk7vttjZIFqkx-AKznRF" 
+local_path <- tempfile(fileext = ".rds")
+drive_download(as_id(file_id), path = local_path, overwrite = TRUE)
+RCTD <- readRDS(local_path)
+```
+Visualize RCTD Annotation
+Post-process RCDT output and add results into Xenium object
+```{r post-rctd}
+RCTD <- SPLIT::run_post_process_RCTD(RCTD)
+```
+
+```{r plot-raw-xenium, fig.width=16, message=FALSE, eval=F}
+xe <- AddMetaData(xe, RCTD@results$results_df)
+
+xe <- subset(xe, subset = nCount_Xenium >= 10)
+
+xe <- xe %>% SCTransform(assay = "Xenium", verbose = FALSE) %>% RunPCA(verbose = FALSE) %>% RunUMAP(dims = 1:50, verbose = FALSE)
+p1 <- UMAPPlot(xe, group.by = "first_type", label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+p2 <- UMAPPlot(xe, group.by = "second_type", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+p3 <- UMAPPlot(xe, group.by = "spot_class") + theme_void() + theme(aspect.ratio = 1, legend.position = "right")
+ 
+p1 | p2 | p3
+```
+
+
+```{r plot-raw-xenium, fig.width=16, message=FALSE, eval=T}
+p1s <- UMAPPlot(xe, group.by = "first_type", split.by = "first_type", cols = pal, ncol = 6) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+p1s
+p1
+
+FeaturePlot(xe, features = c("CD19", "PRDM1", "CCDC80"))
+```
+
+Work on label swapping 
+
+
+```{r}
+sp_nw <- SPLIT::build_spatial_network(
+  xe, 
+  reduction = "spatial",
+  dims = 1:2, 
+  DO_prune = TRUE, 
+  rad_pruning = 15, # remove connections further than 15um
+  k_knn = 20
+)
+
+sp_nw <- SPLIT::add_spatial_metric(spatial_neighborhood = sp_nw, rctd = RCTD)
+sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
+
+
+tr_nw <- build_transcriptomics_network(
+  xe,
+  DO_prune = FALSE,
+  k_knn = 100
+)
+
+tr_nw <- add_transcriptomics_metric(transcriptomics_neighborhood = tr_nw, rctd = RCTD) 
+tr_neigh_df <- neighborhood_analysis_to_metadata(tr_nw)
+```
+
+```{r}
+sp_neigh_df
+tr_neigh_df
+```
+
+
+```{r post-rctd}
+swap_labels <- function(rctd, tr_nw, sp_nw){
+  
+}
+
+compute_swapping_score <- function(rctd, tr_neigh_df, sp_neigh_df){
+  
+  df <- RCTD@results$results_df
+  rownames(tr_neigh_df) <- tr_neigh_df$cell_id
+  rownames(sp_neigh_df) <- sp_neigh_df$cell_id
+  
+  df <- cbind(df, tr_neigh_df[rownames(df),])
+  df <- cbind(df, sp_neigh_df[rownames(df),])
+  
+  col_of_interest <- c("cell_id", "spot_class", "first_type", "second_type", "first_class", "second_class",
+                       "singlet_score", "w1_larger_w2", "weight_first_type",
+                       "annot_min_singlet_score", "annot_max_weight", "annot_max_doublet_weight", 
+                       "first_type_neighborhood", "first_type_neighborhood_agreement", "first_type_class_neighborhood", "first_type_class_neighborhood_agreement", 
+                       "second_type_neighborhood", "second_type_neighborhood_agreement", "second_type_class_neighborhood", "second_type_class_neighborhood_agreement",
+                       "annotated_neighbors_N", "first_type_neighbors_N", "second_type_neighbors_N", "same_second_type_neighbors_N", "neighborhood_weights_first_type", "neighborhood_weights_second_type", "sum_nCount_neighborhood_spilling_type")
+  
+  df_int <- df[, col_of_interest]
+  
+  # First, identify candidates for swapping: 
+  # 1 - they have secondary cell type,
+  # 2 - `first_type_neighborhood_agreement == FALSE`
+  # 3 - 
+  
+  # Swap if second_type = first_type_neighborhood & second_type_neighbors_N == 0
+  
+  # Swapping is only possible for cells that have a secondary cell type, if there is no, make score either NA to -inf
+  
+  ## Transcriptomic scores 
+  # !is.na(second_type) -> +1
+  # argmax first type tr neigh == second_type -> +1 or +2
+  # agrmax  first type tr neigh == first_type -> -1 or -2
+  
+  df_int <- df_int %>%
+    rowwise() %>%
+    mutate(
+      transcriptomic_swapping_score =
+        sum(
+          2*(second_type == first_type_neighborhood),
+          (second_class == first_type_class_neighborhood),
+          (first_type == second_type_neighborhood),
+          (first_class == second_type_class_neighborhood),
+          (second_type == annot_min_singlet_score),
+          (second_type == annot_max_weight),
+          (second_type == annot_max_doublet_weight),
+          na.rm = TRUE
+        )/8 -
+        sum(
+          2*(first_type == first_type_neighborhood),
+          2*(second_type != first_type_neighborhood),
+          (second_class == first_type_class_neighborhood),
+          (second_type == second_type_neighborhood),
+          (second_class == second_type_class_neighborhood),
+          (first_type == annot_min_singlet_score),
+          (first_type == annot_max_weight),
+          (first_type == annot_max_doublet_weight),
+          na.rm = TRUE
+        )/10,
+      
+      spatial_swapping_score =
+        neighborhood_weights_first_type - neighborhood_weights_second_type,
+        # sum(
+        #   (second_type_neighbors_N == 0),
+        #   (first_type_neighbors_N > 0),
+        #   first_type_neighbors_N,
+        #   na.rm = TRUE
+        # ) -
+        # sum(
+        #   (second_type_neighbors_N > 0),
+        #   second_type_neighbors_N,
+        #   na.rm = TRUE
+        # ),
+      
+      total_swapping_score = transcriptomic_swapping_score + spatial_swapping_score,
+      max_swapping_score = max(transcriptomic_swapping_score, spatial_swapping_score),
+      min_swapping_score = max(transcriptomic_swapping_score, spatial_swapping_score)
+    ) %>%
+    ungroup()
+  
+  
+  # argmax first class ft neigh == second class -> +1
+  # argmax first class ft neigh == first class -> -1
+  
+  # argmax second type tr neigh == second_type -> -1 or -2
+  # agrmax  second type tr neigh == first_type -> +1 or +2
+  
+  # argmax second class ft neigh == second class -> -1
+  # argmax second class ft neigh == first class -> +1
+  
+  ## Spatial scores
+  # n second type neighbors < 1 -> +1 or +2
+  # n second class neighbors < 1 -> +1 or +2
+  
+  # n first type neighbors > 1 -> +1
+  
+  # n 
+  
+  # return a vector of indications or sub-scores for each cell or directly a summed up score (better the first one, so that we can visuallize and investigate)
+  df_int <- as.data.frame(df_int)
+  rownames(df_int) <- df_int$cell_id
+  return(df_int)
+  
+}
+
+df_int <- compute_swapping_score(rctd = RCTD, tr_neigh_df = tr_neigh_df, sp_neigh_df = sp_neigh_df)
+
+xe <- AddMetaData(xe, df_int)
+
+```
+
+
+```{r, fig.height=5}
+p1+p2
+
+xe <- xe %>% FindNeighbors() %>% FindClusters()
+```
+
+
+```{r, fig.height=16}
+UMAPPlot(xe, group.by = "seurat_clusters", label = T, repel = T, raster = F) + theme_void() + theme(aspect.ratio = 1, legend.position = "right")
+UMAPPlot(xe, group.by = "seurat_clusters", split.by = "seurat_clusters", ncol = 5) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+
+
+UMAPPlot(xe, group.by = c("annot_min_singlet_score", "annot_max_weight", "first_type"), label = T, repel = T, raster = F, cols = pal) & theme_void() & theme(aspect.ratio = 1, legend.position = "none")
+
+
+DimPlot(subset(xe, subset = seurat_clusters == 12), group.by = "first_type", cols = pal, reduction = "spatial")
+
+sw_score_names <- c("transcriptomic_swapping_score", "spatial_swapping_score", "total_swapping_score", "max_swapping_score")
+FeaturePlot(xe, features = sw_score_names, raster = F, ncol = 2) & 
+  scale_color_gradient2(low = "blue", mid = "gray", high = "red", midpoint = 0 ) &
+  theme_void() &
+  theme(aspect.ratio = 1)
+```
+
+
+```{r}
+hist(xe$max_swapping_score)
+VlnPlot(xe, features = "max_swapping_score", group.by = "first_type", pt.size = 0, cols = pal)
+VlnPlot(xe, features = "max_swapping_score", group.by = "second_type", pt.size = 0, cols = pal)
+VlnPlot(xe, features = "transcriptomic_swapping_score", group.by = "first_type", pt.size = 0, cols = pal)
+VlnPlot(xe, features = "spatial_swapping_score", group.by = "first_type", pt.size = 0, cols = pal)
+```
+
+
+```{r, fig.height=16}
+xe$max_swapping_score_larger_2 <- xe$max_swapping_score > 0
+FeaturePlot(xe, features = "max_swapping_score_larger_2", raster = F) & 
+  scale_color_gradient2(low = "blue", mid = "gray", high = "red", midpoint = 0 ) &
+  theme_void() &
+  theme(aspect.ratio = 1)
+
+UMAPPlot(xe, group.by = "second_type", split.by = "max_swapping_score_larger_2", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+
+FeaturePlot(xe, features = "weight_first_type", split.by = "max_swapping_score_larger_2") & theme_void() & theme(aspect.ratio = 1)
+
+xe@meta.data <- xe@meta.data %>% 
+  mutate(
+    transcriptomic_swapping_score_cat = case_when(
+      transcriptomic_swapping_score < 0 ~ "negative",
+      transcriptomic_swapping_score == 0 ~ "0",
+      transcriptomic_swapping_score > 0 ~ "positive"
+    ),
+    spatial_swapping_score_cat = case_when(
+      spatial_swapping_score < 0 ~ "negative",
+      spatial_swapping_score == 0 ~ "0",
+      spatial_swapping_score > 0 ~ "positive"
+    )
+  )
+
+UMAPPlot(xe, group.by = "second_type", split.by = "max_swapping_score_larger_2", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+UMAPPlot(xe, group.by = "second_type", split.by = "spatial_swapping_score_cat", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+UMAPPlot(xe, group.by = "second_type", split.by = "transcriptomic_swapping_score_cat", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+```
+
+
+
+```{r}
+xe_12 <- subset(xe, subset = seurat_clusters == 12)
+Idents(xe_12) <- "first_type"
+
+deg_12_b_str <- FindMarkers(xe_12, 
+                            ident.1 = "B_Cells", ident.2 = "Stromal")
+                            #cells.1 = xe_12@meta.data %>% filter(first_type == "B_Cells") %>% rownames(),
+                            #cells.2 = xe_12@meta.data %>% filter(first_type == "Stromal") %>% rownames())
+deg_12_b_str
+```
+
+
+```{r, fig.height=16}
+VlnPlot(xe, features = sw_score_names, group.by = "first_type", cols = pal)
+
+VlnPlot(xe, features = "nCount_Xenium", group.by = "first_type", cols = pal, pt.size = 0)
+```
+
+
+```{r, fig.height=8}
+table(xe$first_type, xe$seurat_clusters) %>% prop.table(margin = 1) %>%  as.matrix() %>% apply(MARGIN = 1, FUN = sort)  %>% unique() -> mat
+  
+mat_nozero <- mat[rowSums(mat != 0) > 0, ]  
+
+gini <- apply(mat_nozero, 2, FUN = function(p){sum(p^2)}) # herfindahl <- sum(p^2)  
+gini %>% sort()
+
+entropy <- apply(mat_nozero, 2, FUN = function(p){-sum(p * log(p + 1e-12)) }) 
+entropy %>% sort()
+
+plot(gini, entropy)
+
+M <- outer(gini, gini, "/")
+M %>% heatmap(Colv = NA, Rowv = NA, scale = "none")
+
+library(pheatmap)
+
+pheatmap(M,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,  # cluster cell types if helpful
+         color = colorRampPalette(c("white", "steelblue"))(100),
+         display_numbers = TRUE, number_format = "%.2f",
+         main = "Ratio of Gini coefficients")
+
+
+
+get_mean_nCount_per_celltype <- function(seurat_obj, celltype_col = "first_type") {
+  seurat_obj@meta.data %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(mean_nCount = mean(nCount_Xenium)) 
+
+}
+
+mean_nCount <- get_mean_nCount_per_celltype(xe)
+
+mean_nCount$gini <- gini[mean_nCount$first_type]
+plot(mean_nCount$gini, mean_nCount$mean_nCount)
+
+```
+
+
+```{r, fig.height=5}
+mat_nozero <- mat_nozero %>%  t() %>%  as.data.frame.array() -> ct_dispercity 
+
+pca_ct_dispercity  <- prcomp(mat_nozero, scale. = TRUE, center = TRUE)
+
+pca_ct_dispercity$x %>% ggplot(aes(x = PC1, y = PC2, color = rownames(.))) + geom_point() + scale_color_manual(values = pal)
+```
+
+Visualize debatable cells (ie, plasma cells annotated to stromal)
+
+
+```{r, get-palette}
+# and define colors for reproducibility 
+library(RColorBrewer)
+
+cell_types <- unique(xe$first_type) %>% sort()
+colors <- brewer.pal(n = max(3, min(length(cell_types), 12)), name = "Set3")
+# Recycle colors if not enough
+colors <- rep(colors, length.out = length(cell_types))
+pal <- setNames(colors, cell_types)
+```
+
+Spatial Visualization
+```{r spatial-plot, fig.width=12, warning=FALSE}
+DimPlot(xe, reduction = "spatial", group.by = "first_type", raster = F, cols = pal) + coord_fixed()
+```
+
+
+# Purification
+## SPLIT (default)
+This section runs the default SPLIT purification and visualizes purified data.
+
+```{r SPLIT, message=FALSE}
+# Run SPLIT purification
+res_split <- SPLIT::purify(
+  counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
+  rctd = RCTD,
+  DO_purify_singlets = TRUE # Optional. If TRUE, singlets with an available secondary type are purified the same way as doublets_certain; otherwise, left unchanged.
+)
+
+# Create a purified Seurat object
+xe_purified <- CreateSeuratObject(
+  counts = res_split$purified_counts,
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+```
+
+Running a standard analysis on purified data to get new (purified) UMAP
+```{r SPLIT, message=FALSE, eval=F}
+# Optional: Filter, normalize and visualize
+xe_purified <- subset(xe_purified, subset = nCount_Xenium > 5)
+xe_purified <- xe_purified %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+#UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+```
+
+### Visually compare results of Raw and SPLIT-Purified data
+```{r plot-raw-split-purified, fig.width=12, message=FALSE, eval=F}
+p1 <- UMAPPlot(xe, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Raw Xenium data")
+
+p2 <- UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "right") + ggtitle("SPLIT-purified Xenium data")
+
+p3 <- UMAPPlot(xe_purified, group.by = c("spot_class")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified Xenium data colored by spot class")
+p4 <- UMAPPlot(xe_purified, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified Xenium data colored by purification status")
+
+
+(p1|p2) 
+(p3|p4)
+```
+
+# Reassignment of filtered out transcripts
+For this, we need to compute:
+ - spatial network to define neighboring cells to which the residual transcripts will be reassigned
+ - reassign residual counts (`raw_counts - purified_counts`) among cell's neighboring cells of the secondary cell type (done by `reassign_residual_counts()`)
+ 
+## Compute spatial network
+```{r spatial-nw}
+sp_nw <- SPLIT::build_spatial_network(
+  xe, 
+  reduction = "spatial",
+  dims = 1:2, 
+  DO_prune = TRUE, 
+  rad_pruning = 15, # remove connections further than 15um
+  k_knn = 20
+)
+
+sp_nw <- SPLIT::add_spatial_metric(spatial_neighborhood = sp_nw, rctd = RCTD)
+
+sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
+xe <- AddMetaData(xe, sp_neigh_df)
+#rm(sp_nw, sp_neigh_df)
+```
+
+Compute reasigmnet
+```{r, get-residual-counts}
+pur_genes <- rownames(xe_purified)
+pur_cells <- colnames(xe_purified)
+pur_counts <- GetAssayData(xe_purified, layer = "counts", assay = "Xenium") #[pur_genes, pur_cells]
+raw_counts <- GetAssayData(xe, layer = "counts", assay = "Xenium") #[pur_genes, pur_cells]
+
+
+reassignmet_results <- SPLIT::reassign_residual_counts(
+  raw_counts = raw_counts, 
+  corrected_counts = pur_counts, 
+  spatial_network = sp_nw, 
+  purification_status = xe_purified$purification_status,
+  return_reassignment_operator = TRUE # optional, to explore which cells effectively send transcripts and which cells receive (see details below)
+)
+
+reassigned_counts <- reassignmet_results$corrected_counts
+reassignment_operator <- reassignmet_results$reassignment_operator
+
+rm(reassignmet_results)
+```
+
+## Evaluate transcript re-assigment
+We can now explore which cells sent transcripts and which cells received them upon re-assignment. 
+
+```{r}
+reassignment_operator <- reassignment_operator[pur_cells, pur_cells]
+cells_that_uneffectively_send_transccripts <- rownames(reassignment_operator)[rowSums(reassignment_operator) == 0]
+
+receiving <- colSums(reassigned_counts)
+sending <- colSums(raw_counts[pur_genes, pur_cells] - pur_counts[pur_genes, pur_cells])
+sending_effectively <- sending 
+sending_effectively[cells_that_uneffectively_send_transccripts] <- 0
+
+sending_receiving <- data.frame(nCount_sent = sending, nCount_sent_effectively = sending_effectively, nCount_received = receiving)
+
+plot(sending_receiving$nCount_sent, sending_receiving$nCount_sent_effectively)
+```
+
+```{r}
+cell.meta <- xe_purified@meta.data
+xe_purified_balanced_score <- CreateSeuratObject(
+  counts = pur_counts,
+  assay = "RNA"
+)
+
+xe_post_redistribution <- CreateSeuratObject(
+  counts = pur_counts[pur_genes, pur_cells] + reassigned_counts[pur_genes, pur_cells],
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+
+xe_post_redistribution <- AddMetaData(xe_post_redistribution, sending_receiving)
+
+xe_post_redistribution$nCount_Xenium
+xe_purified_balanced_score$nCount_Xenium
+```
+
+# Exploting cells that cennot send their residual transcripts 
+What are the cells that have signal of contamination, but do not have neighbors of the secondary cell type around?
+
+```{r}
+xe@meta.data <- xe@meta.data %>%
+  mutate(purified_with_no_secondary_type_sp_neighbors = 
+           (rownames(xe@meta.data) %in% cells_that_uneffectively_send_transccripts) &
+           (rownames(xe@meta.data) %in% rownames(res_split$cell_meta)[res_split$cell_meta$purification_status == "purified"])
+         )
+
+UMAPPlot(xe, group.by = "purified_with_no_secondary_type_sp_neighbors") + theme_void() + theme(aspect.ratio = 1)
+```
+
+
+```{r}
+nb_weight_features <- c("neighborhood_weights_second_type", "neighborhood_weights_first_type")
+nb_count_features <- c("second_type_neighbors_no_reject_N", "first_type_neighbors_N")
+FeaturePlot(xe, features = nb_weight_features) & theme_void() & theme(aspect.ratio = 1)
+FeaturePlot(xe, features = nb_count_features) & theme_void() & theme(aspect.ratio = 1)
+
+FeatureScatter(xe, feature1 = nb_weight_features[1], feature2 = nb_weight_features[2], group.by = "purified_with_no_secondary_type_sp_neighbors")
+
+FeatureScatter(xe, feature1 = nb_weight_features[1], feature2 = nb_weight_features[2], group.by = "first_type", cols = pal)
+
+VlnPlot(xe, features = nb_count_features, group.by = "purified_with_no_secondary_type_sp_neighbors", pt.size = 0)
+```
+
+
+```{r}
+df <- data.frame(n_counts_pur = xe_purified_balanced_score$nCount_RNA, n_counts_reassigned = xe_post_redistribution$nCount_Xenium)
+plot(df$n_counts_pur, df$n_counts_reassigned)
+abline(0,1)
+
+summary(df$n_counts_pur)
+summary(df$n_counts_reassigned)
+```
+
+
+```{r}
+xe_post_redistribution <- xe_post_redistribution %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+```
+
+```{r, fig.height = 6, eval = T}
+p_pr <- UMAPPlot(xe_post_redistribution, group.by = c("first_type"), cols = pal, label = T, repel = T) + ggtitle("Fully purified + counts reassignment") & theme(aspect.ratio = 1)
+
+p_pr_st <- UMAPPlot(xe_post_redistribution, group.by = c("second_type"), cols = pal) + ggtitle("Second type") & theme(aspect.ratio = 1)
+
+p_pur <- UMAPPlot(xe_purified, group.by = "first_type", cols = pal, label = T, repel = T) + ggtitle("Fully purified") & theme(aspect.ratio = 1) & NoLegend()
+
+p_pur + p_pr
+p_pr_st
+```
+
+
+```{r, fig.height=8}
+xe_post_redistribution$nCount_sent_uneffectively <- xe_post_redistribution$nCount_sent - xe_post_redistribution$nCount_sent_effectively
+
+
+FeaturePlot(xe_post_redistribution, features = c("nCount_sent", "nCount_sent_effectively", "nCount_received")) & theme(aspect.ratio = 1)
+FeaturePlot(xe_post_redistribution, features =  c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), raster = F) &
+  scale_color_gradientn(
+    colors = c("gray", "blue"),
+    #colours = viridis::viridis(100),
+    limits = c(NA, 150)
+  ) &
+  theme(aspect.ratio = 1)
+```
+
+```{r, fig.height=4}
+FeatureScatter(xe_post_redistribution, feature1 = "nCount_sent_effectively", feature2 = "nCount_received", group.by = "first_type", cols = pal, pt.size = 3)
+```
+
+
+```{r, fig.height=8}
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), ncol = 2,  group.by = "first_type", cols = pal, pt.size = 0, same.y.lims = T)
+
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), ncol = 2,  group.by = "second_type", cols = pal, pt.size = 0, same.y.lims = T)
+```
+
+```{r, fig.height=8}
+plot(xe_post_redistribution$nCount_sent_effectively, xe_post_redistribution$nCount_received)
+```
+
+```{r, fig.height=4}
+total_transcripts_raw <- rowSums(GetAssayData(xe, layer = "counts", assay = "Xenium"))
+total_transcripts_raw_common_genes <- total_transcripts_raw[pur_genes]
+total_transcripts_purified <- rowSums(GetAssayData(xe_purified_balanced_score, layer = "counts", assay = "RNA"))
+total_transcripts_purified_and_reassigned <- rowSums(GetAssayData(xe_post_redistribution, layer = "counts", assay = "Xenium"))
+
+df_total_transcripts <- data.frame(
+  total_transcripts_raw_common_genes = total_transcripts_raw_common_genes,
+  total_transcripts_purified = total_transcripts_purified,
+  total_transcripts_purified_and_reassigned = total_transcripts_purified_and_reassigned
+)
+
+df_total_transcripts %>% 
+  ggplot(aes(x = total_transcripts_raw_common_genes, y = total_transcripts_purified_and_reassigned)) +
+  geom_point() + geom_abline() +
+  scale_x_log10() + scale_y_log10() + theme_classic() + theme(aspect.ratio = 1)
+
+```
+
+```{r}
+df_plot <- data.frame(
+  category = factor(
+    c("Raw common genes", "Purified", "Purified + Reassigned"),
+    levels = c("Raw common genes", "Purified", "Purified + Reassigned")  # enforce order
+  ),
+  value = c(
+    sum(df_total_transcripts$total_transcripts_raw_common_genes),
+    sum(df_total_transcripts$total_transcripts_purified),
+    sum(df_total_transcripts$total_transcripts_purified_and_reassigned)
+  )
+)
+
+ggplot(df_plot, aes(x = category, y = value, fill = category)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  labs(x = NULL, y = "Total transcripts") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = .5))
+
+```
+
+```{r}
+plot(xe_post_redistribution$nCount_sent, xe_post_redistribution$nCount_received)
+
+xe_post_redistribution$nCount_sent %>% hist()
+
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received"), pt.size= 0)
+
+sum(xe_post_redistribution$nCount_received) - sum(xe_post_redistribution$nCount_sent)
+```
+
+
+```{r}
+xe_residuals <- CreateSeuratObject(
+  counts = residual_counts, 
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+
+xe_residuals <- subset(xe_residuals, nCount_Xenium > 1)
+
+xe_residuals <- xe_residuals %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+```
+```{r}
+UMAPPlot(xe_residuals, group.by = c("first_type"), cols = pal, label = F, repel = F)
+UMAPPlot(xe_residuals, group.by = c("second_type"), cols = pal, label = T, repel = T)
+hist(xe_residuals$nCount_Xenium)
+VlnPlot(xe_residuals, features = "nCount_Xenium", group.by = "second_type", cols = pal, pt.size = 0)
+```
+
+
+```{r}
+plot(x= df$n_counts_pur, y = df$n_counts_reassigned)
+abline(0,1)
+
+cs <- colSums(reassigned_counts)
+summary(cs)
+cs
+```
+
+

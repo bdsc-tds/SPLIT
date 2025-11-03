@@ -131,6 +131,7 @@ build_reassigment_operator <- function(
 #' @param mode Character, redistribution mode. One of:
 #'   * `"uniform"` (default): redistribute evenly across neighbors
 #'   * `"count_proportinal"`: redistribute proportionally to `rowSums(raw_counts)`
+#' @param return_reassignment_operator Logical, defining whether reassignment oprator should be returned
 #' @param ... Additional arguments passed to `build_reassigment_operator`.
 #'
 #' @return A numeric matrix of corrected counts (genes x cells), after
@@ -145,27 +146,18 @@ build_reassigment_operator <- function(
 #'
 #' @examples
 #' # corrected <- reassign_residual_counts(raw_counts, purified_counts, sp_nw, purification_status)
-#'
 #' @export
+#'
 reassign_residual_counts <- function(
     raw_counts,
     corrected_counts,
     spatial_network,
     purification_status,
     mode = c("uniform", "count_proportinal"),
+    return_reassignment_operator = FALSE,
     ...
 ){
-  # ---- Argument checks ----
-  stopifnot(is.matrix(raw_counts), is.matrix(corrected_counts))
-  if (!all(dim(raw_counts) == dim(corrected_counts))) {
-    stop("`raw_counts` and `corrected_counts` must have the same dimensions.")
-  }
-  if (!all(rownames(raw_counts) == rownames(corrected_counts))) {
-    stop("Row names (genes) of `raw_counts` and `corrected_counts` must match.")
-  }
-  if (!all(colnames(raw_counts) == colnames(corrected_counts))) {
-    stop("Column names (cells) of `raw_counts` and `corrected_counts` must match.")
-  }
+  # Argument checks
   if (is.null(names(purification_status))) {
     stop("`purification_status` must be a named vector (names = cell IDs).")
   }
@@ -173,7 +165,7 @@ reassign_residual_counts <- function(
   cells <- colnames(corrected_counts)
   genes <- rownames(corrected_counts)
 
-  # ---- Residual calculation ----
+  # Residual calculation
   residual_counts <- raw_counts[genes, cells, drop = FALSE] -
     corrected_counts[genes, cells, drop = FALSE]
 
@@ -181,7 +173,7 @@ reassign_residual_counts <- function(
     purification_status[purification_status == "purified"]
   )
 
-  # ---- Mode selection ----
+  # Mode selection
   mode <- match.arg(mode)
   if (mode == "uniform") {
     nCount <- NULL
@@ -189,7 +181,7 @@ reassign_residual_counts <- function(
     nCount <- rowSums(raw_counts)
   }
 
-  # ---- Build reassignment operator ----
+  #  Build reassignment operator
   reassignment_operator <- build_reassigment_operator(
     sp_nw = spatial_network,
     cells_with_residual_transcripts = cells_with_residual_transcripts,
@@ -197,11 +189,18 @@ reassign_residual_counts <- function(
     ...
   )
 
-  # ---- Redistribution ----
+  # Redistribution
   reassigned_counts <- residual_counts %*%
     reassignment_operator[colnames(residual_counts), colnames(residual_counts)]
 
   corrected_counts <- corrected_counts + reassigned_counts
 
-  corrected_counts
+  if(!return_reassignment_operator){
+    return(corrected_counts)
+  } else {
+    return(list(
+      corrected_counts = corrected_counts,
+      reassignment_operator = reassignment_operator
+    ))
+  }
 }
