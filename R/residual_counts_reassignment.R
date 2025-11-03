@@ -130,7 +130,7 @@ build_reassigment_operator <- function(
 #'   for each cell (names = cell IDs, values = e.g., `"purified"` or other).
 #' @param mode Character, redistribution mode. One of:
 #'   * `"uniform"` (default): redistribute evenly across neighbors
-#'   * `"count_proportinal"`: redistribute proportionally to `rowSums(raw_counts)`
+#'   * `"count_proportional"`: redistribute proportionally to `rowSums(raw_counts)`
 #' @param return_reassignment_operator Logical, defining whether reassignment oprator should be returned
 #' @param ... Additional arguments passed to `build_reassigment_operator`.
 #'
@@ -153,7 +153,7 @@ reassign_residual_counts <- function(
     corrected_counts,
     spatial_network,
     purification_status,
-    mode = c("uniform", "count_proportinal"),
+    mode = c("uniform", "count_proportional"),
     return_reassignment_operator = FALSE,
     ...
 ){
@@ -177,8 +177,8 @@ reassign_residual_counts <- function(
   mode <- match.arg(mode)
   if (mode == "uniform") {
     nCount <- NULL
-  } else if (mode == "count_proportinal") {
-    nCount <- rowSums(raw_counts)
+  } else if (mode == "count_proportional") {
+    nCount <- Matrix::colSums(raw_counts)
   }
 
   #  Build reassignment operator
