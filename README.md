@@ -1,17 +1,17 @@
 <!-- badges: start --> 
 [![R-CMD-check](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml) 
 [![DOI](https://img.shields.io/badge/DOI%3A-10.1101%2F2025.04.23.649965-brightgreen)](https://doi.org/10.1101/2025.04.23.649965)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)
 <!-- badges: end -->
 
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
 
 ![](vignettes/plots/SPLIT_schema.png)
 
-🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2)). \
+🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.1.3](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)). \
 ⚡ Use the **Quick Start** guide below to get up and running quickly.\
 📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html) (<30 min total runtime on a standard PC, incl. 4 min for SPLIT with a peak memory usage of ~21 GB).\
-🆕🔥 A NEW **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (~30 min total runtime on a standard PC, incl. 10 min for SPLIT with a peak memory usage of ~52 GB). ❗ Requires [SPLIT v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2).
+🆕🔥 A NEW **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (~30 min total runtime on a standard PC, incl. 10 min for SPLIT with a peak memory usage of ~52 GB). ❗ Requires [SPLIT v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2) or later.
 
 ------------------------------------------------------------------------
 
