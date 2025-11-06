@@ -1,7 +1,7 @@
 Package: SPLIT
 Type: Package
 Title: Spatial Purification of Layered Intracellular Transcripts
-Version: 0.1.2.1
+Version: 0.1.3
 Authors@R: c(
     person(
       "Mariia", "Bilous",
@@ -13,12 +13,13 @@ Description:
   The SPLIT (Spatial Purification of Layered Intracellular Transcripts) package provides 
   tools to purify spatial transcriptomics data using decomposition results from the RCTD 
   (Robust Cell Type Decomposition) algorithm. It offers functionality to adjust cell-type 
-  profiles by removing contributions attributed to background contamination. SPLIT also 
+  profiles by removing contributions attributed to transcript spillover. SPLIT also 
   computes contamination scores and estimates local diffusion of contaminating profiles 
   to help distinguish between contamination and phenotypic variation. Additionally, 
   the package includes methods to refine cell-type annotations based on transcriptomic 
   neighborhood homogeneity. The resulting output contains profiles with reduced 
-  contamination and increased cell-type specificity.
+  contamination and increased cell-type specificity. Since version 0.1.3 it allows to re-assing 
+  contaminaing transcripts to potential cells of origin.
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
