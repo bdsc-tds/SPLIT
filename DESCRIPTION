@@ -18,8 +18,8 @@ Description:
   to help distinguish between contamination and phenotypic variation. Additionally, 
   the package includes methods to refine cell-type annotations based on transcriptomic 
   neighborhood homogeneity. The resulting output contains profiles with reduced 
-  contamination and increased cell-type specificity. Since version 0.1.3 it allows to re-assing 
-  contaminaing transcripts to potential cells of origin.
+  contamination and increased cell-type specificity. Since version 0.1.3 it allows to re-assign 
+  contaminaing transcripts to potential neighboring cells of origin.
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
