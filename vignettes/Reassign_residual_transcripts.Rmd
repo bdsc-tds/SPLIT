@@ -1,0 +1,418 @@
+---
+title: "Reassigning residual trancripts to neighboring cells"
+output: 
+  rmarkdown::github_document:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Run RCTD and SPLIT on Xenium}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+This vignette demonstrates how to reassign residual (filtered out) transcripts to the neighboring cells. For this, we will use the results of the [vignette on running SPLIT on Xenium](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd)
+
+```{r libs, message=FALSE}
+if(!requireNamespace("spacexr", quietly = TRUE)){
+  remotes::install_github("dmcable/spacexr") ## or remotes::install_github("jpromeror/spacexr@HD") for implementation of the doublet mode.
+}
+library(spacexr)
+
+if(!requireNamespace("SPLIT", quietly = TRUE)){
+  remotes::install_github("bdsc-tds/SPLIT") 
+}
+library(SPLIT)
+
+library(dplyr)
+library(Seurat)
+library(SingleCellExperiment)
+library(ggplot2)
+```
+
+### Load Xenium Dataset
+
+We load the Xenium spatial transcriptomics data using the `STexampleData` package, which provides convenient access to example spatial datasets for analysis and demonstration.
+
+```{r load-xenium}
+if(!requireNamespace("STexampleData", quietly = TRUE))
+  remotes::install_github("lmweber/STexampleData")
+xe_full_seu <- STexampleData::Janesick_breastCancer_Xenium_rep1() 
+
+## Convert to Seurat to stay consistent with chromium object
+sp_coords <- spatialCoords(xe_full_seu)
+colnames(sp_coords) <- c("ST_1", "ST_2")
+
+xe <- CreateSeuratObject(
+  counts = counts(xe_full_seu),
+  assay = "Xenium",
+  meta.data = as.data.frame(colData(xe_full_seu))
+)
+
+xe[["spatial"]] <- CreateDimReducObject(sp_coords, assay = "Xenium", key = "ST_")
+
+xe$x <- sp_coords[,1]
+xe$y <- sp_coords[,2]
+rm(xe_full_seu)
+```
+
+You can optionally crop the slice to reduce computations, but we will use the entire dataset.
+```{r downsampling}
+DO_subset_xe <- FALSE 
+X_lim <- c(6000, Inf) # cropping area 
+Y_lim <- c(4000, Inf) # cropping area 
+
+if(DO_subset_xe){
+  xe <- subset(xe, subset = x > min(X_lim) & x < max(X_lim) & y > min(Y_lim) & y < max(Y_lim))
+} 
+```
+
+Download pre-computed RCTD (ie., cell-type annotation) results
+```{r, load-rctd}
+# Install googledrive if you haven't already
+if (!requireNamespace("googledrive", quietly = TRUE)) {
+  install.packages("googledrive")
+}
+library(googledrive)
+drive_deauth()
+# Define the file ID from the Google Drive link
+file_id <- "1pTUKq49JbUFwVk7vttjZIFqkx-AKznRF" 
+local_path <- tempfile(fileext = ".rds")
+drive_download(as_id(file_id), path = local_path, overwrite = TRUE)
+RCTD <- readRDS(local_path)
+```
+Visualize RCTD Annotation
+Post-process RCDT output and add results into Xenium object
+```{r post-rctd}
+RCTD <- SPLIT::run_post_process_RCTD(RCTD)
+```
+
+```{r pre-proc-xe, fig.width=16, message=FALSE, eval=T}
+xe <- AddMetaData(xe, RCTD@results$results_df)
+
+xe <- subset(xe, subset = nCount_Xenium >= 10)
+
+xe <- xe %>% SCTransform(assay = "Xenium", verbose = FALSE) %>% RunPCA(verbose = FALSE) %>% RunUMAP(dims = 1:50, verbose = FALSE)
+```
+
+```{r, get-palette}
+# and define colors for reproducibility 
+library(RColorBrewer)
+
+cell_types <- unique(xe$first_type) %>% sort()
+colors <- brewer.pal(n = max(3, min(length(cell_types), 12)), name = "Set3")
+# Recycle colors if not enough
+colors <- rep(colors, length.out = length(cell_types))
+pal <- setNames(colors, cell_types)
+```
+
+```{r plot-raw-xenium, fig.width=16, message=FALSE, eval=T}
+p1 <- UMAPPlot(xe, group.by = "first_type", label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+p2 <- UMAPPlot(xe, group.by = "second_type", cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom")
+p3 <- UMAPPlot(xe, group.by = "spot_class") + theme_void() + theme(aspect.ratio = 1, legend.position = "right")
+ 
+p1 | p2 | p3
+```
+
+Spatial Visualization
+```{r spatial-plot, fig.width=12, warning=FALSE}
+DimPlot(xe, reduction = "spatial", group.by = "first_type", raster = F, cols = pal) + coord_fixed()
+```
+
+
+# Purification
+## SPLIT (default)
+This section runs the default SPLIT purification and visualizes purified data.
+
+```{r SPLIT, message=FALSE}
+# Run SPLIT purification
+res_split <- SPLIT::purify(
+  counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
+  rctd = RCTD,
+  DO_purify_singlets = TRUE 
+)
+
+# Create a purified Seurat object
+xe_purified <- CreateSeuratObject(
+  counts = res_split$purified_counts,
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+```
+
+Running a standard analysis on purified data to get new (purified) UMAP
+```{r SPLIT-seurat, message=FALSE, eval=T}
+# Optional: Filter, normalize and visualize
+xe_purified <- subset(xe_purified, subset = nCount_Xenium > 5)
+xe_purified <- xe_purified %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+#UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T) + theme_void() + theme(aspect.ratio = 1, legend.position = "none")
+```
+
+### Visually compare results of Raw and SPLIT-Purified data
+```{r plot-raw-split-purified, fig.width=12, message=FALSE, eval=T}
+p1 <- UMAPPlot(xe, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Raw Xenium data")
+
+p2 <- UMAPPlot(xe_purified, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "right") + ggtitle("SPLIT-purified Xenium data")
+
+p3 <- UMAPPlot(xe_purified, group.by = c("spot_class")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified Xenium data colored by spot class")
+p4 <- UMAPPlot(xe_purified, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified Xenium data colored by purification status")
+
+
+(p1|p2) 
+(p3|p4)
+```
+
+# Reassignment of filtered out transcripts
+For this, we need to compute:
+ - spatial network to define neighboring cells to which the residual transcripts will be reassigned
+ - reassign residual counts (`raw_counts - purified_counts`) among cell's neighboring cells of the secondary cell type (done by `reassign_residual_counts()`)
+ 
+## Compute spatial network
+```{r spatial-nw}
+sp_nw <- SPLIT::build_spatial_network(
+  xe, 
+  reduction = "spatial",
+  dims = 1:2, 
+  DO_prune = TRUE, 
+  rad_pruning = 15, # remove connections further than 15um
+  k_knn = 20
+)
+
+sp_nw <- SPLIT::add_spatial_metric(spatial_neighborhood = sp_nw, rctd = RCTD)
+
+sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
+xe <- AddMetaData(xe, sp_neigh_df)
+#rm(sp_nw, sp_neigh_df)
+```
+
+Compute reassignment
+```{r, get-residual-counts}
+pur_genes <- rownames(xe_purified)
+pur_cells <- colnames(xe_purified)
+pur_counts <- GetAssayData(xe_purified, layer = "counts", assay = "Xenium") #[pur_genes, pur_cells]
+raw_counts <- GetAssayData(xe, layer = "counts", assay = "Xenium") #[pur_genes, pur_cells]
+
+
+reassignmet_results <- SPLIT::reassign_residual_counts(
+  raw_counts = raw_counts, 
+  corrected_counts = pur_counts, 
+  spatial_network = sp_nw, 
+  purification_status = xe_purified$purification_status,
+  mode = "count_proportional", # "uniform" for uniform distribution among neighbors of contaminating cell type, or "count_proportional" for the reassignment proportional to contaminating neighbors' number of counts
+  return_reassignment_operator = TRUE # optional, to explore which cells effectively send transcripts and which cells receive (see details below)
+)
+
+reassigned_counts <- reassignmet_results$corrected_counts
+reassignment_operator <- reassignmet_results$reassignment_operator
+
+#rm(reassignmet_results)
+```
+
+## Evaluate transcript re-assigment
+We can now explore which cells sent transcripts and which cells received them upon re-assignment. 
+
+```{r}
+reassignment_operator <- reassignment_operator[pur_cells, pur_cells]
+cells_that_uneffectively_send_transccripts <- rownames(reassignment_operator)[rowSums(reassignment_operator) == 0]
+
+receiving <- colSums(reassigned_counts)
+sending <- colSums(raw_counts[pur_genes, pur_cells] - pur_counts[pur_genes, pur_cells])
+sending_effectively <- sending 
+sending_effectively[cells_that_uneffectively_send_transccripts] <- 0
+
+sending_receiving <- data.frame(nCount_sent = sending, nCount_sent_effectively = sending_effectively, nCount_received = receiving)
+
+plot(sending_receiving$nCount_sent, sending_receiving$nCount_sent_effectively)
+```
+
+```{r}
+cell.meta <- xe_purified@meta.data
+xe_purified_balanced_score <- CreateSeuratObject(
+  counts = pur_counts,
+  assay = "Xenium"
+)
+
+xe_post_redistribution <- CreateSeuratObject(
+  counts = reassigned_counts[pur_genes, pur_cells], #  no need to add purified counts as they have been already accounted in `reassigned_counts`
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+
+xe_post_redistribution <- AddMetaData(xe_post_redistribution, sending_receiving)
+
+xe_post_redistribution$nCount_Xenium
+xe_purified_balanced_score$nCount_Xenium
+```
+
+# Exploting cells that cannot send their residual transcripts 
+What are the cells that have signal of contamination, but do not have neighbors of the secondary cell type around?
+
+```{r}
+xe@meta.data <- xe@meta.data %>%
+  mutate(purified_with_no_secondary_type_sp_neighbors = 
+           (rownames(xe@meta.data) %in% cells_that_uneffectively_send_transccripts) &
+           (rownames(xe@meta.data) %in% rownames(res_split$cell_meta)[res_split$cell_meta$purification_status == "purified"])
+         )
+
+UMAPPlot(xe, group.by = "purified_with_no_secondary_type_sp_neighbors") + theme_void() + theme(aspect.ratio = 1)
+```
+
+
+```{r}
+nb_weight_features <- c("neighborhood_weights_second_type", "neighborhood_weights_first_type")
+nb_count_features <- c("second_type_neighbors_no_reject_N", "first_type_neighbors_N")
+FeaturePlot(xe, features = nb_weight_features) & theme_void() & theme(aspect.ratio = 1)
+FeaturePlot(xe, features = nb_count_features) & theme_void() & theme(aspect.ratio = 1)
+
+FeatureScatter(xe, feature1 = nb_weight_features[1], feature2 = nb_weight_features[2], group.by = "purified_with_no_secondary_type_sp_neighbors")
+
+FeatureScatter(xe, feature1 = nb_weight_features[1], feature2 = nb_weight_features[2], group.by = "first_type", cols = pal)
+
+VlnPlot(xe, features = nb_count_features, group.by = "purified_with_no_secondary_type_sp_neighbors", pt.size = 0)
+```
+
+
+```{r}
+df <- data.frame(
+  n_counts_pur = xe_purified_balanced_score$nCount_Xenium, 
+  n_counts_reassigned = xe_post_redistribution$nCount_Xenium
+)
+plot(df$n_counts_pur, df$n_counts_reassigned)
+abline(0,1)
+
+summary(df$n_counts_pur)
+summary(df$n_counts_reassigned)
+```
+
+
+```{r}
+xe_post_redistribution <- xe_post_redistribution %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+```
+
+```{r, fig.height = 6, eval = T}
+p_pr <- UMAPPlot(xe_post_redistribution, group.by = c("first_type"), cols = pal, label = T, repel = T) + ggtitle("Fully purified + counts reassignment") & theme(aspect.ratio = 1)
+
+p_pr_st <- UMAPPlot(xe_post_redistribution, group.by = c("second_type"), cols = pal) + ggtitle("Second type") & theme(aspect.ratio = 1)
+
+p_pur <- UMAPPlot(xe_purified, group.by = "first_type", cols = pal, label = T, repel = T) + ggtitle("Fully purified") & theme(aspect.ratio = 1) & NoLegend()
+
+p_pur + p_pr
+p_pr_st
+```
+
+
+```{r, fig.height=8}
+xe_post_redistribution$nCount_sent_uneffectively <- xe_post_redistribution$nCount_sent - xe_post_redistribution$nCount_sent_effectively
+
+
+FeaturePlot(xe_post_redistribution, features = c("nCount_sent", "nCount_sent_effectively", "nCount_received")) & theme(aspect.ratio = 1)
+FeaturePlot(xe_post_redistribution, features =  c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), raster = F) &
+  scale_color_gradientn(
+    colors = c("gray", "blue"),
+    #colours = viridis::viridis(100),
+    limits = c(NA, 150)
+  ) &
+  theme(aspect.ratio = 1)
+```
+
+
+```{r, fig.height=8}
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), ncol = 2,  group.by = "first_type", cols = pal, pt.size = 0, same.y.lims = T)
+
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received", "nCount_sent_uneffectively", "nCount_sent_effectively"), ncol = 2,  group.by = "second_type", cols = pal, pt.size = 0, same.y.lims = T)
+```
+
+```{r, fig.height=8}
+plot(xe_post_redistribution$nCount_sent_effectively, xe_post_redistribution$nCount_received)
+```
+
+```{r, fig.height=4}
+total_transcripts_raw <- rowSums(GetAssayData(xe, layer = "counts", assay = "Xenium"))
+total_transcripts_raw_common_genes <- total_transcripts_raw[pur_genes]
+total_transcripts_purified <- rowSums(GetAssayData(xe_purified_balanced_score, layer = "counts", assay = "Xenium"))
+total_transcripts_purified_and_reassigned <- rowSums(GetAssayData(xe_post_redistribution, layer = "counts", assay = "Xenium"))
+
+df_total_transcripts <- data.frame(
+  total_transcripts_raw_common_genes = total_transcripts_raw_common_genes,
+  total_transcripts_purified = total_transcripts_purified,
+  total_transcripts_purified_and_reassigned = total_transcripts_purified_and_reassigned
+)
+
+df_total_transcripts %>% 
+  ggplot(aes(x = total_transcripts_raw_common_genes, y = total_transcripts_purified_and_reassigned)) +
+  geom_point() + geom_abline() +
+  scale_x_log10() + scale_y_log10() + theme_classic() + theme(aspect.ratio = 1)
+
+```
+
+```{r}
+df_plot <- data.frame(
+  category = factor(
+    c("Raw common genes", "Purified", "Purified + Reassigned"),
+    levels = c("Raw common genes", "Purified", "Purified + Reassigned")  # enforce order
+  ),
+  value = c(
+    sum(df_total_transcripts$total_transcripts_raw_common_genes),
+    sum(df_total_transcripts$total_transcripts_purified),
+    sum(df_total_transcripts$total_transcripts_purified_and_reassigned)
+  )
+)
+
+ggplot(df_plot, aes(x = category, y = value, fill = category)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  labs(x = NULL, y = "Total transcripts") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = .5))
+
+```
+
+```{r}
+plot(xe_post_redistribution$nCount_sent, xe_post_redistribution$nCount_received)
+
+xe_post_redistribution$nCount_sent %>% hist()
+
+VlnPlot(xe_post_redistribution, features = c("nCount_sent", "nCount_received"), pt.size= 0)
+
+sum(xe_post_redistribution$nCount_received) - sum(xe_post_redistribution$nCount_sent)
+```
+
+# Do residuals even make sense?
+
+```{r}
+residual_counts <- raw_counts[pur_genes, pur_cells] -  res_split$purified_counts[pur_genes, pur_cells]
+  
+xe_residuals <- CreateSeuratObject(
+  counts = residual_counts, 
+  meta.data = res_split$cell_meta,
+  assay = "Xenium"
+)
+
+xe_residuals <- subset(xe_residuals, nCount_Xenium > 1)
+
+xe_residuals <- xe_residuals %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+```
+
+Yes, the residuals group by the secondary (ie, residual) cell type
+```{r}
+UMAPPlot(xe_residuals, group.by = c("first_type"), cols = pal, label = F, repel = F)
+UMAPPlot(xe_residuals, group.by = c("second_type"), cols = pal, label = T, repel = T)
+hist(xe_residuals$nCount_Xenium)
+VlnPlot(xe_residuals, features = "nCount_Xenium", group.by = "second_type", cols = pal, pt.size = 0)
+```
+
+
+
+
