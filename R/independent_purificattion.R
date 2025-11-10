@@ -80,10 +80,9 @@
 #'
 #' @import Matrix
 #' @import SingleCellExperiment
-#' @importFrom utils tail
 #' @importFrom methods as
 #'
-#' @export # temporarily, later replace with wrapper that calls correct function
+#' @export
 
 rctd_free_purify <- function(
     counts,                 # genes x cells
@@ -203,8 +202,7 @@ rctd_free_purify <- function(
       idx <- block_indices[[b]]
       cells_in_block <- shared_cells[idx]
 
-      message("Processing block ", b, "/", n_blocks,
-              " (", idx[1], "-", tail(idx, 1), ")")
+      message("Processing block ", b, "/", n_blocks)
 
       # --- Compute block numerator & denominator -----------------------------
       block_denominator <- as.matrix(deconvolution_weights[cells_in_block, , drop = FALSE]) %*%
