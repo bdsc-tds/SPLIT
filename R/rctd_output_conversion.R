@@ -36,10 +36,10 @@ convert_rctd_result_to_purify_input <- function(
     rctd
 ){
   results_df <- rctd@results$results_df
-  primary_cell_type <- results_df$first_type  ## need
+  primary_cell_type <- results_df$first_type %>% as.vector()  ## need
   names(primary_cell_type) <- results_df %>% rownames()
 
-  secondary_cell_type <- results_df$second_type
+  secondary_cell_type <- results_df$second_type %>% as.vector()
   names(secondary_cell_type) <- results_df %>% rownames()
 
   ijx <- res_df_2_ijx(rctd = rctd)
@@ -85,7 +85,10 @@ convert_rctd_result_to_purify_input <- function(
 #' @importFrom magrittr %>%
 
 res_df_2_ijx <-  function(rctd, cell_types = NULL){
-  results_df <- rctd@results$results_df # to remove
+  results_df <- rctd@results$results_df
+  results_df$first_type <- as.vector(results_df$first_type)
+  results_df$second_type <- as.vector(results_df$second_type)
+
   if(is.null(cell_types)){
     cell_types <- colnames(rctd@results$weights)
   }

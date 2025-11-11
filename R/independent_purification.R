@@ -178,7 +178,7 @@ rctd_free_purify <- function(
     }
   }
 
-  if (length(gene_names_counts) < length(shared_genes)) {
+  if (length(gene_names_counts) > length(shared_genes)) {
     warning("Some genes not present in the reference; removed from output.")
   }
 
