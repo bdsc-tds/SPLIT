@@ -1,17 +1,17 @@
-<!-- badges: start --> 
-[![R-CMD-check](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml) 
-[![DOI](https://img.shields.io/badge/DOI%3A-10.1101%2F2025.04.23.649965-brightgreen)](https://doi.org/10.1101/2025.04.23.649965)
-[![Version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)
+<!-- badges: start -->
+
+[![R-CMD-check](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml) [![DOI](https://img.shields.io/badge/DOI%3A-10.1101%2F2025.04.23.649965-brightgreen)](https://doi.org/10.1101/2025.04.23.649965) [![Version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)
+
 <!-- badges: end -->
 
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
 
 ![](vignettes/plots/SPLIT_schema.png)
 
-🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.1.3](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)). \
+🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.1.3](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.3)).\
 ⚡ Use the **Quick Start** guide below to get up and running quickly.\
-📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html) (<30 min total runtime on a standard PC, incl. 4 min for SPLIT with a peak memory usage of ~21 GB).\
-🆕🔥 A NEW **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (~30 min total runtime on a standard PC, incl. 10 min for SPLIT with a peak memory usage of ~52 GB). ❗ Requires [SPLIT v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2) or later.
+📖 A **comprehensive tutorial** of running SPLIT on Xenium data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html) (\<30 min total runtime on a standard PC, incl. 4 min for SPLIT with a peak memory usage of \~21 GB).\
+🆕🔥 A NEW **comprehensive tutorial** of running SPLIT on **VisiumHD** data is now available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (\~30 min total runtime on a standard PC, incl. 10 min for SPLIT with a peak memory usage of \~52 GB). ❗ Requires [SPLIT v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2) or later.
 
 ------------------------------------------------------------------------
 
@@ -26,9 +26,13 @@ remotes::install_github("bdsc-tds/SPLIT")
 
 ## 🚀 Quick Start
 
-⚠️ **IMPORTANT:**\
-SPLIT currently requires **doublet-mode** RCTD results from the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or its faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD), **not** from the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html).\
-🚧 **Compatibility with Bioconductor's spacexr is coming soon.**
+⚠️ **IMPORTANT Update (v0.2.0+):**
+
+SPLIT is now **deconvolution-agnostic**. It works with *any* deconvolution output.
+
+You only need: a **cells × cell_types** deconvolution weight matrix, a **genes × cell_types** reference, optional **primary cell type** labels (otherwise taken as the argmax of the weights).
+
+Note: it is still directly compatible with **doublet-mode** RCTD results from the original [spacexr GitHub repository](#0) or its faster [HD fork](#0).
 
 If you already have your **Xenium** dataset as a Seurat object (`xe`) and **RCTD** results from **doublet-mode** decomposition in `RCTD`, you can run SPLIT purification like this:
 

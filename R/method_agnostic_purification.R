@@ -86,15 +86,36 @@
 
 rctd_free_purify <- function(
     counts,                 # genes x cells
-    primary_cell_type,      # vector
     deconvolution_weights,  # cells x weights
-    reference,              # genes x cell types
+    reference,              # cell types x genes
+    primary_cell_type = NULL, # vector
     cells_to_purify = NULL, # vector
     DO_run_in_chunks = TRUE,
     chunk_size = 50000,
     DO_require_sumup_to_one = TRUE,
-    DO_output_sce = TRUE
+    DO_output_sce = TRUE,
+    ...
 ){
+
+  # capture deprecated args
+  deprecated_args <- list(...)
+
+  # list of args removed in 0.2.0
+  old_args <- c("DO_parallel", "n_workers", "DO_purify_singlets", "gene_list")
+
+  # check if any were provided
+  used_old <- intersect(names(deprecated_args), old_args)
+
+  # warn, but do NOT stop execution
+  if (length(used_old) > 0) {
+    warning(
+      sprintf(
+        "The argument(s) %s are deprecated and ignored as of SPLIT v0.2.0.",
+        paste(used_old, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
 
   # --- Core identifiers --------------------------------------------------------
   cell_names_counts <- colnames(counts)
@@ -107,8 +128,15 @@ rctd_free_purify <- function(
 
   # --- Subset to shared genes/cells -------------------------------------------
   counts <- counts[shared_genes, shared_cells]
-  primary_cell_type <- primary_cell_type[shared_cells]
   deconvolution_weights <- deconvolution_weights[shared_cells, ]
+
+  if(is.null(primary_cell_type)){
+    warning("`primary_cell_type` not provided! \nPrimary cell type will be assigned to the cell type of max weight of the deconvolution")
+
+    primary_cell_type <- colnames(deconvolution_weights)[apply(deconvolution_weights, 1, function(x){which.max(x)})]
+    names(primary_cell_type) <- rownames(deconvolution_weights)
+  }
+  primary_cell_type <- primary_cell_type[shared_cells]
 
   cell_types_weights <- sort(colnames(deconvolution_weights))
   cell_types_reference <- sort(rownames(reference))
@@ -182,11 +210,13 @@ rctd_free_purify <- function(
     warning("Some genes not present in the reference; removed from output.")
   }
 
+  message("Precompute:\n")
   # --- Precompute helper vectors ---------------------------------------------
   primary_type_weight <- deconvolution_weights[cbind(shared_cells, primary_cell_type)]
   n_celltypes_per_cell <- Matrix::rowSums(deconvolution_weights[shared_cells, ] > 0)
   epsilon <- 1e-10
 
+  message("Before if:\n")
   # --- Chunked or full computation -------------------------------------------
   if (DO_run_in_chunks) {
 
@@ -298,3 +328,81 @@ rctd_free_purify <- function(
     return(sce_out)
   }
 }
+
+
+#' Purify counts using RCTD-based or RCTD-free workflows
+#'
+#' @description
+#' A backward-compatible wrapper that automatically selects between
+#' the legacy RCTD-based purification (`rctd_based_purify`) and the new
+#' standalone version (`rctd_free_purify`).
+#'
+#' @param counts Gene-by-cell count matrix.
+#' @param rctd Optional RCTD object (required for legacy mode).
+#' @param primary_cell_type Optional vector of primary cell type labels
+#'   (required for RCTD-free mode).
+#' @param deconvolution_weights Optional matrix of cell-type weights per cell
+#'   (required for RCTD-free mode).
+#' @param reference Optional reference matrix (genes x cell types),
+#'   required for RCTD-free mode.
+#' @param use_free Logical; force use of `rctd_free_purify()` even if an
+#'   `rctd` object is supplied. Defaults to `FALSE`.
+#' @param ... Additional arguments passed to the chosen purify function.
+#'
+#' @return
+#' Output of either `rctd_based_purify()` or `rctd_free_purify()`,
+#' depending on the input.
+#'
+#' @examples
+#' purify(counts = counts, rctd = my_rctd)
+#' purify(counts = counts, primary_cell_type = ptype,
+#'         deconvolution_weights = weights, reference = ref)
+#'
+#' @export
+purify <- function(counts,
+                   rctd = NULL,
+                   primary_cell_type = NULL,
+                   deconvolution_weights = NULL,
+                   reference = NULL,
+                   use_free = FALSE,
+                   ...) {
+
+  # --- Decide which function to use ------------------------------------------
+  if (!use_free && !is.null(rctd)) {
+    message("▶ Using legacy RCTD-based purification (rctd_based_purify).")
+
+    rctd <- convert_rctd_result_to_purify_input(rctd = rctd)
+
+    return(rctd_free_purify(
+      counts = counts,
+      primary_cell_type = rctd$primary_cell_type,
+      deconvolution_weights = rctd$deconvolution_weights,
+      reference = Matrix::t(rctd$reference),
+      ...
+    ))
+  }
+
+  # --- Validate required arguments for RCTD-free mode ------------------------
+  missing_args <- c()
+  if (is.null(primary_cell_type))       missing_args <- c(missing_args, "primary_cell_type")
+  if (is.null(deconvolution_weights))   missing_args <- c(missing_args, "deconvolution_weights")
+  if (is.null(reference))               missing_args <- c(missing_args, "reference")
+
+  if (length(missing_args) > 0) {
+    stop(
+      "For RCTD-free purification, the following arguments are required: ",
+      paste(missing_args, collapse = ", "), "."
+    )
+  }
+
+  message("▶ Using RCTD-free purification (rctd_free_purify).")
+
+  return(rctd_free_purify(
+    counts = counts,
+    primary_cell_type = primary_cell_type,
+    deconvolution_weights = deconvolution_weights,
+    reference = reference,
+    ...
+  ))
+}
+

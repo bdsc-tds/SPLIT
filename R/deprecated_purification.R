@@ -4,7 +4,9 @@
 #get_decomposed_data_full_doublet() # https://github.com/dmcable/spacexr/blob/0a0861e3d1e16014a20e9b743d0e19d3b42231f3/R/postProcessing.R#L44
 #decompose_doublet_fast() # https://github.com/dmcable/spacexr/blob/0a0861e3d1e16014a20e9b743d0e19d3b42231f3/R/RCTD_helper.R#L219C1-L219C23
 
-#' Decompose doublet into 2 profiles
+#' Decompose doublet into 2 profiles (deprecated)
+#'
+#' `r lifecycle::badge("deprecated")`
 #'
 #' @param bead (counts) profile to decompose
 #' @param weights cell-type weights (expected to sum up to 1)
@@ -21,6 +23,11 @@ decompose_doublet <- function(
     bead, weights, gene_list, cell_type_info, type1, cell_types
 ){
   #bead     <- bead[gene_list]
+
+  lifecycle::deprecate_warn(
+    "0.2.0",
+    "decompose_doublet()"
+  )
 
   N_genes  <- length(gene_list)
   epsilon  <- 1e-10
@@ -41,7 +48,9 @@ decompose_doublet <- function(
 }
 
 
-#' Purify Counts Using RCTD Output
+#' Purify Counts Using RCTD Output (deprecated)
+#'
+#' `r lifecycle::badge("deprecated")`
 #'
 #' This function purifies a query count matrix using the RCTD output, handling both certain and uncertain doublets, as well as optionally processing singlets.
 #'
@@ -64,6 +73,11 @@ decompose_doublet <- function(
 #' @export
 
 purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_info, DO_purify_singlets, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
+
+  lifecycle::deprecate_warn(
+    "0.2.0",
+    "purify_counts_with_rctd()"
+  )
 
   sparse <- inherits(counts, "sparseMatrix")
 
@@ -373,7 +387,16 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 }
 
 
-#' Purify Data Using RCTD Output
+#' Purify Data Using RCTD Output (deprecated)
+#'
+#' `r lifecycle::badge("deprecated")`
+#'
+#' This function was used in SPLIT v0.1.x to purify raw counts using an RCTD
+#' object. As of **SPLIT v0.2.0**, SPLIT is fully deconvolution-agnostic, and
+#' `rctd_based_purify()` is deprecated and will be removed in a future release.
+#'
+#' #' Please use [`purify()`] instead, which accepts *any* deconvolution result,
+#' including RCTD.
 #'
 #' This function purifies a query count matrix using the RCTD output, handling both certain and uncertain doublets, as well as optionally processing singlets.
 #'
@@ -393,7 +416,14 @@ purify_counts_with_rctd <- function(counts, results_df, ct_weights, cell_type_in
 #' @import BiocParallel
 #' @export
 
-purify <- function(counts, rctd, DO_purify_singlets, gene_list = NULL, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
+rctd_based_purify <- function(counts, rctd, DO_purify_singlets, gene_list = NULL, DO_parallel = FALSE, n_workers = NULL, chunk_size = 10000) {
+
+  lifecycle::deprecate_warn(
+    "0.2.0",
+    "rctd_based_purify()",
+    "purify()",
+    details = "SPLIT is now deconvolution-agnostic; please provide deconvolution weights and a reference directly."
+  )
 
   results_df <- rctd@results$results_df
 
@@ -425,15 +455,3 @@ purify <- function(counts, rctd, DO_purify_singlets, gene_list = NULL, DO_parall
   )
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
