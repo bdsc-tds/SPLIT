@@ -345,8 +345,6 @@ rctd_free_purify <- function(
 #'   (required for RCTD-free mode).
 #' @param reference Optional reference matrix (genes x cell types),
 #'   required for RCTD-free mode.
-#' @param use_free Logical; force use of `rctd_free_purify()` even if an
-#'   `rctd` object is supplied. Defaults to `FALSE`.
 #' @param ... Additional arguments passed to the chosen purify function.
 #'
 #' @return
@@ -359,17 +357,28 @@ rctd_free_purify <- function(
 #'         deconvolution_weights = weights, reference = ref)
 #'
 #' @export
+
 purify <- function(counts,
-                   rctd = NULL,
+                   rctd = NULL, # will be deprecated soon
                    primary_cell_type = NULL,
                    deconvolution_weights = NULL,
                    reference = NULL,
-                   use_free = FALSE,
                    ...) {
 
-  # --- Decide which function to use ------------------------------------------
-  if (!use_free && !is.null(rctd)) {
-    message("▶ Using legacy RCTD-based purification (rctd_based_purify).")
+  # --- Transform rctd to new input ofrmat ------------------------------------------
+  if (!is.null(rctd)) {
+
+    lifecycle::deprecate_warn(
+      when = "0.2.0",
+      what = "purify(rctd = )",
+      details = paste(
+        "The `rctd` argument is deprecated and will be removed in a",
+        "future release. Please supply `primary_cell_type`,",
+        "`deconvolution_weights`, and `reference` directly.",
+        "If you have RCTD output, use `convert_rctd_result_to_purify_input(rctd = rctd)`",
+        ""
+      )
+    )
 
     rctd <- convert_rctd_result_to_purify_input(rctd = rctd)
 
