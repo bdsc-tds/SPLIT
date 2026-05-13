@@ -94,7 +94,7 @@ res_df_2_ijx <-  function(rctd, cell_types = NULL){
   }
 
   doublets_uncertain <- results_df %>% filter(spot_class == "doublet_uncertain") %>% rownames()
-  print(length(doublets_uncertain))
+  #print(length(doublets_uncertain))
 
   # cells for which 1-2 cell types to consider (singlets and doublets certain):
   results_df <- results_df %>% filter(spot_class %in% c("singlet", "doublet_certain"))

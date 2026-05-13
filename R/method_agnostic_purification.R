@@ -93,7 +93,7 @@ rctd_free_purify <- function(
     DO_run_in_chunks = TRUE,
     chunk_size = 50000,
     DO_require_sumup_to_one = TRUE,
-    DO_output_sce = TRUE,
+    DO_output_sce = FALSE,
     ...
 ){
 
@@ -210,13 +210,11 @@ rctd_free_purify <- function(
     warning("Some genes not present in the reference; removed from output.")
   }
 
-  message("Precompute:\n")
   # --- Precompute helper vectors ---------------------------------------------
   primary_type_weight <- deconvolution_weights[cbind(shared_cells, primary_cell_type)]
   n_celltypes_per_cell <- Matrix::rowSums(deconvolution_weights[shared_cells, ] > 0)
   epsilon <- 1e-10
 
-  message("Before if:\n")
   # --- Chunked or full computation -------------------------------------------
   if (DO_run_in_chunks) {
 
@@ -315,8 +313,8 @@ rctd_free_purify <- function(
     )
 
     # Store reference info for reproducibility
-    metadata(sce_out)$reference_cell_types <- rownames(reference)
-    metadata(sce_out)$deconvolution_summary <- list(
+    S4Vectors::metadata(sce_out)$reference_cell_types <- rownames(reference)
+    S4Vectors::metadata(sce_out)$deconvolution_summary <- list(
       n_cells = length(shared_cells),
       n_genes = length(shared_genes),
       run_in_chunks = DO_run_in_chunks,
