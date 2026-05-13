@@ -402,7 +402,7 @@ purify <- function(counts,
     )
   }
 
-  message("▶ Using RCTD-free purification (rctd_free_purify).")
+  message("Using RCTD-free purification (rctd_free_purify).")
 
   return(rctd_free_purify(
     counts = counts,

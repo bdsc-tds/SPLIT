@@ -34,7 +34,7 @@ Imports:
     scatterpie,
     Seurat,
     BiocParallel,
-    igraph
+    igraph,
     methods,
     S4Vectors,
     SingleCellExperiment
