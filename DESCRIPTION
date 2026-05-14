@@ -27,6 +27,8 @@ Depends: R (>= 4.0.0)
 Imports:
     Matrix,
     dplyr,
+    magrittr,
+    rlang,
     forcats,
     entropy,
     spacexr,
