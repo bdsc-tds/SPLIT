@@ -18,7 +18,7 @@
 #' @export
 
 
-split <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size = 10000){
+split_cells <- function(counts, rctd, DO_purify_singlets, n_workers = NULL, chunk_size = 10000){
 
   purified <- purify(counts = counts, rctd = rctd, DO_purify_singlets = DO_purify_singlets, n_workers = n_workers, chunk_size = chunk_size)
 

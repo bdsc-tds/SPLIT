@@ -141,6 +141,7 @@ tar -xvzf Visium_HD_Human_Colon_Cancer_segmented_outputs.tar.gz
 
 Or use a tremporary location.
 ```{r download-visium, eval = T}
+
 # download data form 10x counts and coordinates
 url <- "https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Human_Colon_Cancer/Visium_HD_Human_Colon_Cancer_segmented_outputs.tar.gz"
 temp_file <- tempfile(fileext = ".tar.gz")
@@ -157,6 +158,7 @@ untar(temp_file, exdir = output_dir)
 
 # Check extracted contents
 list.files(output_dir, recursive = TRUE)
+
 ```
 
 ## Read Visium data (counts and cell coordinates)
@@ -334,17 +336,29 @@ ggplot(cell_segmentation) +
 ## SPLIT (default)
 This section runs the default SPLIT purification and visualizes purified data.
 
-```{r SPLIT, message=FALSE}
+SPLIT no longer requires RCTD output as of version `0.2.0`. You can now supply any cell-type deconvolution results via a `deconvolution_weights` matrix `(cells × cell_types)` and a `reference` matrix `(genes × cell_types)`. Optionally, provide `primary_cell_type`; if omitted, it is inferred per cell as `argmax(deconvolution_weights)`. By default, all cells are purified toward their `primary_cell_type`, treating the remaining non-zero weights as proportional contamination from the corresponding cell types. To control which cells to purify, pass their identifiers to `cells_to_purify` argument. 
+
+```{r SPLIT, message=TRUE}
+converted_rctd <- convert_rctd_result_to_purify_input(RCTD)
+
+reference <- t(converted_rctd$reference)
+primary_cell_type <- converted_rctd$primary_cell_type
+deconvolution_weights <- converted_rctd$deconvolution_weights
+
 # Run SPLIT purification
-res_split <- purify(
+res_split <- SPLIT::purify(
   counts = GetAssayData(vhd, assay = 'VHD', layer = 'counts'), # or any gene x cells counts matrix
-  rctd = RCTD,
-  DO_parallel = F,
-  n_workers = NULL,
-  chunk_size = 5000,
-  DO_purify_singlets = T # Optional. If TRUE, singlets with an available secondary type are purified the same way as doublets_certain; otherwise, left unchanged.
+  reference = reference,
+  primary_cell_type = primary_cell_type,
+  deconvolution_weights = deconvolution_weights,
+  DO_output_sce = FALSE,
+  DO_run_in_chunks = TRUE,
+  chunk_size = 10000
 )
+
 ```
+
+
 
 
 ```{r SPLIT-obj, message=FALSE}
@@ -367,16 +381,18 @@ p1 <- UMAPPlot(vhd, group.by = c("first_type"), label = T, repel = T, cols = pal
 
 p2 <- UMAPPlot(vhd_purified, group.by = c("first_type"), label = T, repel = T, cols = pal) + theme_void() + theme(aspect.ratio = 1, legend.position = "right") + ggtitle("SPLIT-purified VisiumHD data")
 
-p3 <- UMAPPlot(vhd_purified, group.by = c("spot_class")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified VisiumHD data colored by spot class")
-p4 <- UMAPPlot(vhd_purified, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified VisiumHD data colored by purification status")
+p3 <- UMAPPlot(vhd_purified, group.by = c("purification_status")) + theme_void() + theme(aspect.ratio = 1, legend.position = "bottom") + ggtitle("SPLIT-purified VisiumHD data colored by purification status")
 
 
-(p1|p2) 
-(p3|p4)
+(p1|p2|p3) 
 
 ```
 
+
 ## Spatially-aware SPLIT
+
+*The functionality below currently depends on RCTD output. It will be refactored to support generic deconvolution inputs in a future release.*
+
 SPLIT can leverage spatial information to assess the abundance of secondary signals in the local neighborhood (i.e., local diffusion potential), enabling selective decomposition only when contamination is likely. This spatially informed strategy helps prevent overcorrection of phenotypes that may be underrepresented or absent in the reference. 
 Specifically, we first compute the spatial neighborhood for each cell, then identify and purify cells that have sign of local diffusion of the secondary cell type.
 ```{r spatial-nw}
@@ -393,7 +409,7 @@ sp_nw <- SPLIT::add_spatial_metric(spatial_neighborhood = sp_nw, rctd = RCTD)
 sp_neigh_df <- SPLIT::neighborhood_analysis_to_metadata(sp_nw)
 
 vhd <- AddMetaData(vhd, sp_neigh_df)
-
+vhd <- AddMetaData(vhd, RCTD@results$results_df) # for the spot_class
 rm(sp_nw, sp_neigh_df)
 ```
 

@@ -1,3 +1,21 @@
+# SPLIT 0.2.0
+
+- **SPLIT is now annotation-method agnostic**: `SPLIT::purify()` no longer requires RCTD output and accepts any deconvolution result. All you need is a cells x cell-types weight matrix, a genes x cell-types reference matrix, and optionally a primary cell-type vector (otherwise inferred as the argmax of the weights).
+- Add `SPLIT::convert_rctd_result_to_purify_input()` to extract deconvolution weights, primary cell-type vector and reference matrix from RCTD output for use with the new agnostic interface.
+- **Full-transcriptome compatible**: `SPLIT::purify()` now scales to large full-transcriptome platforms such as ATERA (~18,000 genes) and runs to completion in minutes.
+- Generate vignette comparing ATERA and Xenium and demonstrating SPLIT purification on both.
+- Drop hard dependency on `spacexr`; RCTD-based purification remains fully supported and backward compatible via the `rctd` argument.
+- Drop hard dependency on `BiocParallel`; parallelisation is no longer required for the core purification step.
+
+All changes are backward compatible. Results obtained with earlier versions of SPLIT are not affected when using the legacy `rctd` interface.
+
+# SPLIT 0.1.3
+
+- Reassign residual (i.e., removed) counts to neighboring cells of the contaminating cell type via `SPLIT::reassign_residual_counts()`.
+- Generate corresponding [vignette](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Reassign_residual_transcripts.html).
+
+All changes are backward compatible and do not affect the results obtained with the earlier version of SPLIT.
+
 # SPLIT 0.1.2
 
 - Accelerate and optimaze memory usage in `SPLIT::run_post_process_RCTD()` and `SPLIT::purify()`
