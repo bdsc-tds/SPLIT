@@ -1,3 +1,10 @@
+# SPLIT 0.2.1
+
+- Add `reconstruct_rctd_from_rctdpy()` to bridge Python `rctd-py` (https://pypi.org/project/rctd-py/) output and the SPLIT post-processing pipeline. The function reads parquet/HDF5 files saved from `rctd-py`, assembles a `spacexr` S4 `RCTD` object, and runs `run_post_process_RCTD(lite = TRUE)`, enabling users who perform deconvolution in Python to use SPLIT without re-running RCTD in R. See `?reconstruct_rctd_from_rctdpy` for the expected file layout and a Python saving snippet.
+- Add `arrow` and `rhdf5` to `Imports`.
+
+All changes are backward compatible and do not affect results obtained with earlier versions of SPLIT.
+
 # SPLIT 0.2.0
 
 - **SPLIT is now annotation-method agnostic**: `SPLIT::purify()` no longer requires RCTD output and accepts any deconvolution result. All you need is a cells x cell-types weight matrix, a genes x cell-types reference matrix, and optionally a primary cell-type vector (otherwise inferred as the argmax of the weights).
