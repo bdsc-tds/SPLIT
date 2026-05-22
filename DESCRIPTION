@@ -1,7 +1,7 @@
 Package: SPLIT
 Type: Package
 Title: Spatial Purification of Layered Intracellular Transcripts
-Version: 0.2.0
+Version: 0.2.1
 Authors@R: c(
     person(
       "Mariia", "Bilous",
@@ -39,7 +39,9 @@ Imports:
     igraph,
     methods,
     S4Vectors,
-    SingleCellExperiment
+    SingleCellExperiment,
+    arrow,
+    rhdf5
 Suggests:
     testthat,
     knitr,
