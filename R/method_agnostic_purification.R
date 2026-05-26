@@ -378,6 +378,21 @@ purify <- function(counts,
       )
     )
 
+    # Post-process RCTD output if haven't been done so yet:
+
+    if (is.null(rctd@results)) {
+      stop(
+        "'rctd@results' is NULL. Run spacexr::run.RCTD() first."
+      )
+    }
+    if (!"results_df_old" %in% names(rctd@results)) {
+      stop(
+        "The RCTD object has not been post-processed by SPLIT.\n",
+        "Please run:\n",
+        "  rctd <- SPLIT::run_post_process_RCTD(rctd)"
+      )
+    }
+
     rctd <- convert_rctd_result_to_purify_input(rctd = rctd)
 
     return(rctd_free_purify(
