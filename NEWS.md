@@ -1,3 +1,11 @@
+# SPLIT 0.2.2
+
+- Add a validation check in `purify()`, `add_spatial_metric()` and `add_transcriptomics_metric()` that verifies
+  `SPLIT::run_post_process_RCTD()` has been applied to the RCTD object
+  before proceeding. An informative error with remediation instructions
+  is now thrown if not. Non-post-processed RCTD objects will be formally
+  rejected from the next release onwards (#20).
+  
 # SPLIT 0.2.1
 
 - Add `reconstruct_rctd_from_rctdpy()` to bridge Python `rctd-py` (https://pypi.org/project/rctd-py/) output and the SPLIT post-processing pipeline. The function reads parquet/HDF5 files saved from `rctd-py`, assembles a `spacexr` S4 `RCTD` object, and runs `run_post_process_RCTD(lite = TRUE)`, enabling users who perform deconvolution in Python to use SPLIT without re-running RCTD in R. See `?reconstruct_rctd_from_rctdpy` for the expected file layout and a Python saving snippet.
