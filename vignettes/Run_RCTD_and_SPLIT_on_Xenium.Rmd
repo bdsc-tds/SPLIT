@@ -262,16 +262,11 @@ DimPlot(xe, reduction = "spatial", group.by = "first_type", raster = TRUE, cols 
 ## SPLIT (default)
 This section runs the default SPLIT purification and visualizes purified data.
 
-```{r}
-res_split <- SPLIT::purify(
-  counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
-  rctd = RCTD,
-  DO_purify_singlets = TRUE 
-)
-```
 
 ```{r SPLIT, message=FALSE}
 # Run SPLIT purification
+# Make sure you have run `RCTD <- SPLIT::run_post_process_RCTD(RCTD)` so that RCTD result is SPLIT-compatible.
+
 res_split <- SPLIT::purify(
   counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
   rctd = RCTD,
