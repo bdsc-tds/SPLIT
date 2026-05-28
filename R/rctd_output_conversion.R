@@ -1,70 +1,115 @@
-#' Convert RCTD result to `rctd_free_purify` input format
+#' Convert RCTD result to \code{rctd_free_purify} input format
 #'
-#' @description
-#' Converts an RCTD (Robust Cell Type Decomposition) object into a list of
-#' components compatible with [`rctd_free_purify()`]. This function extracts
-#' per-cell deconvolution results, converts them to sparse matrices, and prepares
-#' the primary cell type vector and reference profiles.
+#' Converts an RCTD (Robust Cell Type Decomposition) object into a list
+#' of components compatible with \code{\link{rctd_free_purify}}. This
+#' function extracts per-cell deconvolution results, converts them to
+#' sparse matrices, and prepares the primary cell type vector and
+#' reference profiles.
 #'
-#' @param rctd An object of class `RCTD` containing cell-type decomposition
-#'   results, typically produced by the **RCTD** package (`run.RCTD()`).
+#' If the RCTD object has not yet been post-processed by SPLIT,
+#' \code{\link{run_post_process_RCTD}} is called automatically with a
+#' warning.
 #'
-#' @return A named **list** with elements:
+#' @param rctd An object of class \code{RCTD} containing cell-type
+#'   decomposition results, typically produced by
+#'   \code{spacexr::run.RCTD()}.
+#' @param ... Additional arguments passed to
+#'   \code{\link{run_post_process_RCTD}} if post-processing is needed.
+#'
+#' @return A named list with elements:
 #' \describe{
-#'   \item{`primary_cell_type`}{Character vector of dominant cell type per cell.}
-#'   \item{`deconvolution_weights`}{Sparse matrix (cells × cell types) of
-#'   deconvolution weights.}
-#'   \item{`reference`}{Matrix of reference expression profiles
-#'   (genes × cell types).}
+#'   \item{primary_cell_type}{Character vector of dominant cell type
+#'     per cell.}
+#'   \item{deconvolution_weights}{Sparse matrix (cells x cell types)
+#'     of deconvolution weights.}
+#'   \item{reference}{Matrix of reference expression profiles
+#'     (genes x cell types).}
 #' }
 #'
 #' @details
-#' This function is useful for compatibility testing or migrating pipelines
-#' from the RCTD output structure to the input format expected by
-#' [`purify_rctd_free()`]. The helper functions [`res_df_2_ijx()`] and
-#' [`build_sparse_from_ijx()`] are used internally.
+#' This function is useful for compatibility testing or migrating
+#' pipelines from the RCTD output structure to the input format
+#' expected by \code{\link{rctd_free_purify}}. The helper functions
+#' \code{\link{res_df_2_ijx}} and \code{\link{build_sparse_from_ijx}}
+#' are used internally.
 #'
 #' @seealso
-#' [purify_rctd_free()], [res_df_2_ijx()], [build_sparse_from_ijx()]
+#'   \code{\link{rctd_free_purify}},
+#'   \code{\link{res_df_2_ijx}},
+#'   \code{\link{build_sparse_from_ijx}},
+#'   \code{\link{run_post_process_RCTD}}
 #'
-#' @import Matrix
-#' @importFrom dplyr filter
-#' @importFrom magrittr %>%
+#' @importFrom methods is
+#' @importFrom Matrix sparseMatrix
+#'
 #' @export
+convert_rctd_result_to_purify_input <- function(rctd, ...) {
 
-convert_rctd_result_to_purify_input <- function(
-    rctd
-){
-
+  ## ---- 1. Check rctd@results is populated -------------------------------
   if (is.null(rctd@results)) {
     stop(
-      "'rctd@results' is NULL. Run spacexr::run.RCTD() first."
+      "'rctd@results' is NULL. ",
+      "Run spacexr::run.RCTD() first."
     )
   }
+
+  ## ---- 2. Auto-run post-processing if not yet done ----------------------
   if (!"results_df_old" %in% names(rctd@results)) {
-    stop(
+    warning(
       "The RCTD object has not been post-processed by SPLIT.\n",
-      "Please run:\n",
+      "Calling SPLIT::run_post_process_RCTD() automatically.\n",
+      "To suppress this warning, run it explicitly first:\n",
       "  rctd <- SPLIT::run_post_process_RCTD(rctd)"
     )
+    rctd <- SPLIT::run_post_process_RCTD(rctd, ...)
   }
 
-  results_df <- rctd@results$results_df
-  primary_cell_type <- results_df$first_type %>% as.vector()  ## need
-  names(primary_cell_type) <- results_df %>% rownames()
-
-  secondary_cell_type <- results_df$second_type %>% as.vector()
-  names(secondary_cell_type) <- results_df %>% rownames()
-
-  ijx <- res_df_2_ijx(rctd = rctd)
-  weights_sparse <- build_sparse_from_ijx(ijx) ## need
-
-  return(
-    list(
-      primary_cell_type = primary_cell_type, # vect
-      deconvolution_weights = weights_sparse, # cells x weights
-      reference = rctd@cell_type_info[[1]][[1]] # genes x cell types
+  ## ---- 3. Validate results_df and required columns ----------------------
+  if (is.null(rctd@results$results_df)) {
+    stop(
+      "'rctd@results$results_df' is NULL after post-processing.\n",
+      "This is unexpected — please check your RCTD object."
     )
+  }
+
+  results_df   <- rctd@results$results_df
+  required_cols <- c("first_type", "second_type",
+                     "weight_first_type", "weight_second_type",
+                     "spot_class")
+  missing_cols  <- required_cols[!required_cols %in% names(results_df)]
+
+  if (length(missing_cols) > 0L) {
+    stop(
+      "The following required columns are missing from ",
+      "'rctd@results$results_df':\n",
+      "  ", paste(missing_cols, collapse = ", "), "\n",
+      "Ensure SPLIT::run_post_process_RCTD() completed ",
+      "successfully."
+    )
+  }
+
+  ## ---- 4. Validate reference profiles -----------------------------------
+  if (is.null(rctd@cell_type_info) ||
+      is.null(rctd@cell_type_info[[1L]][[1L]])) {
+    stop(
+      "'rctd@cell_type_info' is NULL or incomplete.\n",
+      "The RCTD object may not have been run to completion."
+    )
+  }
+
+  ## ---- 5. Extract primary and secondary cell types ----------------------
+  primary_cell_type   <- as.vector(results_df$first_type)
+  names(primary_cell_type) <- rownames(results_df)
+
+  ## ---- 6. Build sparse weight matrix ------------------------------------
+  ijx            <- res_df_2_ijx(rctd = rctd)
+  weights_sparse <- build_sparse_from_ijx(ijx)
+
+  ## ---- 7. Return --------------------------------------------------------
+  list(
+    primary_cell_type     = primary_cell_type,
+    deconvolution_weights = weights_sparse,
+    reference             = rctd@cell_type_info[[1L]][[1L]]
   )
 }
 
