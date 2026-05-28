@@ -1,3 +1,13 @@
+# SPLIT 0.2.3
+
+- fix a silent data corruption bug in `convert_rctd_result_to_purify_input()`
+  where missing `weight_first_type` and `weight_second_type` columns in
+  non-post-processed RCTD objects caused deconvolution weights to be silently
+  recycled, incorrectly removing most transcripts from normal cells (#23).
+  The function now validates all required fields upfront and automatically
+  applies `run_post_process_RCTD()` with a warning if post-processing has
+  not been performed.
+  
 # SPLIT 0.2.2
 
 - Add a validation check in `purify()`, `add_spatial_metric()` and `add_transcriptomics_metric()` that verifies
