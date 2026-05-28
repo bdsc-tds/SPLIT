@@ -35,6 +35,20 @@
 convert_rctd_result_to_purify_input <- function(
     rctd
 ){
+
+  if (is.null(rctd@results)) {
+    stop(
+      "'rctd@results' is NULL. Run spacexr::run.RCTD() first."
+    )
+  }
+  if (!"results_df_old" %in% names(rctd@results)) {
+    stop(
+      "The RCTD object has not been post-processed by SPLIT.\n",
+      "Please run:\n",
+      "  rctd <- SPLIT::run_post_process_RCTD(rctd)"
+    )
+  }
+
   results_df <- rctd@results$results_df
   primary_cell_type <- results_df$first_type %>% as.vector()  ## need
   names(primary_cell_type) <- results_df %>% rownames()
