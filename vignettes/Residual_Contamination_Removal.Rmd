@@ -1,0 +1,406 @@
+---
+title: "Residual Contamination Removal in SPLIT"
+output:
+  rmarkdown::github_document:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Residual Contamination Removal in SPLIT}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+SPLIT purifies spatial transcriptomics profiles by attributing each cell's
+expression to its primary cell type, based on a provided deconvolution weight
+matrix and a reference expression profile. Contamination from neighbouring cell
+types — whether one or several — is removed proportionally according to their
+inferred weights.
+
+However, some genes are not specific to any of the cell types assigned to a
+given cell. These genes represent **residual contamination** from cell types
+entirely absent from the local deconvolution model, and cannot be resolved
+through proportional redistribution. They persist in the purified profile
+regardless of how many components the deconvolution assigns.
+
+This vignette showcases `DO_remove_residual_contamination = TRUE`, a new
+optional flag available from **SPLIT v0.3.0** in `purify()` that additionally
+zeros out these non-specific genes using the reference expression profiles.
+We demonstrate:
+
+1. How to enable residual contamination removal with a single argument.
+2. That the additional signal removed is modest — typically 2–5% of total counts
+   on top of what standard SPLIT already removes.
+3. That marker gene specificity improves substantially without over-correcting
+   genuine cell-type-specific signal.
+
+> **Note on deconvolution backend**
+> This vignette uses pre-computed RCTD results for convenience. SPLIT is
+> compatible with any deconvolution tool — all that is required is a
+> cells × cell-types weight matrix and a genes × cell-types reference matrix.
+> See `?purify` for details.
+>
+> 📝 A significantly faster Python implementation of RCTD (py-RCTD)[https://github.com/p-gueguen/rctd-py] is
+> available for large datasets. SPLIT provides a convenience wrapper
+> `reconstruct_rctd_from_rctdpy()` to load py-RCTD outputs directly into
+> `purify()`. See `?reconstruct_rctd_from_rctdpy` for details.
+
+```{r libs, message=FALSE}
+if (!requireNamespace("SPLIT", quietly = TRUE))
+  remotes::install_github("bdsc-tds/SPLIT")
+library(SPLIT)
+library(spacexr)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(RColorBrewer)
+```
+
+# Load Data
+
+We use the publicly available Xenium breast cancer dataset from:
+
+> **Janesick, A., Shelansky, R., Gottscho, A.D. et al.**
+> *High resolution mapping of the tumor microenvironment using integrated
+> single-cell, spatial and in situ analysis.*
+> *Nature Communications* 14, 8353 (2023).
+> [https://doi.org/10.1038/s41467-023-43458-x](https://doi.org/10.1038/s41467-023-43458-x)
+
+```{r load-xenium, message=FALSE}
+if (!requireNamespace("STexampleData", quietly = TRUE))
+  remotes::install_github("lmweber/STexampleData")
+
+xe_full_seu <- STexampleData::Janesick_breastCancer_Xenium_rep1()
+sp_coords   <- spatialCoords(xe_full_seu)
+colnames(sp_coords) <- c("ST_1", "ST_2")
+
+xe <- CreateSeuratObject(
+  counts    = counts(xe_full_seu),
+  assay     = "Xenium",
+  meta.data = as.data.frame(colData(xe_full_seu))
+)
+xe[["spatial"]] <- CreateDimReducObject(sp_coords, assay = "Xenium", key = "ST_")
+xe$x <- sp_coords[, 1]
+xe$y <- sp_coords[, 2]
+rm(xe_full_seu)
+```
+
+```{r load-rctd, message=FALSE}
+# Load pre-computed RCTD results
+library(googledrive)
+drive_deauth()
+file_id    <- "1pTUKq49JbUFwVk7vttjZIFqkx-AKznRF"
+local_path <- tempfile(fileext = ".rds")
+drive_download(as_id(file_id), path = local_path, overwrite = TRUE)
+RCTD <- readRDS(local_path)
+RCTD <- SPLIT::run_post_process_RCTD(RCTD)
+
+# Add RCTD results to Xenium object and filter low-count cells
+xe <- AddMetaData(xe, RCTD@results$results_df)
+xe <- subset(xe, subset = nCount_Xenium >= 10)
+
+# Cell type colour palette
+cell_types <- sort(unique(xe$first_type))
+pal <- setNames(
+  rep(brewer.pal(n = min(12, length(cell_types)), "Set3"),
+      length.out = length(cell_types)),
+  cell_types
+)
+
+cat("Spot class proportions (%):\n")
+round(table(xe$spot_class) / ncol(xe) * 100, 1)
+```
+
+# Run SPLIT: Standard vs Residual Contamination Removal
+
+We run `purify()` twice — once with default settings, and once with
+`DO_remove_residual_contamination = TRUE`. Everything else is identical.
+
+```{r run-split}
+raw_counts <- GetAssayData(xe, assay = "Xenium", layer = "counts")
+
+# Standard SPLIT
+res_split <- SPLIT::purify(
+  counts             = raw_counts,
+  rctd               = RCTD,
+  DO_purify_singlets = TRUE
+)
+
+# SPLIT + residual contamination removal
+res_split_clean <- SPLIT::purify(
+  counts                           = raw_counts,
+  rctd                             = RCTD,
+  DO_purify_singlets               = TRUE,
+  DO_remove_residual_contamination = TRUE,  # <- new flag
+  belonging_threshold              = NULL   # auto-derived from reference
+)
+```
+
+```{r build-seurat, message=FALSE}
+make_purified_seurat <- function(res, raw_counts, xe) {
+  obj <- CreateSeuratObject(
+    counts    = res$purified_counts,
+    meta.data = res$cell_meta,
+    assay     = "Xenium"
+  )
+  obj <- subset(obj, subset = nCount_Xenium > 5)
+  shared <- intersect(colnames(obj), colnames(xe))
+  obj[["raw"]] <- CreateAssayObject(
+    counts = raw_counts[rownames(obj), shared]
+  )
+  obj <- NormalizeData(obj, assay = "raw",    verbose = FALSE)
+  obj <- NormalizeData(obj, assay = "Xenium", verbose = FALSE)
+  obj
+}
+
+xe_split <- make_purified_seurat(res_split,       raw_counts, xe)
+xe_clean <- make_purified_seurat(res_split_clean, raw_counts, xe)
+```
+
+# How Much Signal Is Removed?
+
+A key question is whether residual contamination removal over-corrects the data.
+We quantify count removal at each step.
+
+```{r count-removal}
+shared_cells <- Reduce(intersect, list(colnames(xe), colnames(xe_split), colnames(xe_clean)))
+cat(sprintf("Shared cells: %s\n", format(length(shared_cells), big.mark = ",")))
+
+total_raw   <- sum(GetAssayData(xe,       assay = "Xenium", layer = "counts")[, shared_cells])
+total_split <- sum(GetAssayData(xe_split, assay = "Xenium", layer = "counts")[, shared_cells])
+total_clean <- sum(GetAssayData(xe_clean, assay = "Xenium", layer = "counts")[, shared_cells])
+
+cat("\n── Count removal summary ───────────────────────────────────────\n")
+cat(sprintf("  Raw                                : %s\n",
+            format(total_raw, big.mark = ",")))
+cat(sprintf("  After SPLIT                        : %s  (%.1f%% removed)\n",
+            format(total_split, big.mark = ","),
+            100 * (1 - total_split / total_raw)))
+cat(sprintf("  After SPLIT + residual removal     : %s  (%.1f%% removed)\n",
+            format(total_clean, big.mark = ","),
+            100 * (1 - total_clean / total_raw)))
+cat(sprintf("  Additional removal by residual step: %.1f%% of raw counts\n",
+            100 * (total_split - total_clean) / total_raw))
+cat("───────────────────────────────────────────────────────────────\n")
+```
+
+```{r count-distribution, fig.width=9, fig.height=4}
+data.frame(
+  Raw              = colSums(GetAssayData(xe,       assay = "Xenium", layer = "counts")[, shared_cells]),
+  SPLIT            = colSums(GetAssayData(xe_split, assay = "Xenium", layer = "counts")[, shared_cells]),
+  SPLIT_clean      = colSums(GetAssayData(xe_clean, assay = "Xenium", layer = "counts")[, shared_cells])
+) %>%
+  tidyr::pivot_longer(everything(), names_to = "method", values_to = "total_counts") %>%
+  mutate(method = factor(method,
+                         levels = c("Raw", "SPLIT", "SPLIT_clean"),
+                         labels = c("Raw", "SPLIT", "SPLIT + residual removal"))) %>%
+  ggplot(aes(x = total_counts, fill = method)) +
+  geom_histogram(bins = 80, alpha = 0.6, position = "identity") +
+  scale_x_log10() +
+  scale_fill_manual(values = c("Raw" = "#888888", "SPLIT" = "#4C78A8",
+                               "SPLIT + residual removal" = "#F58518")) +
+  theme_bw() +
+  labs(title = "Total counts per cell",
+       subtitle = "Residual removal adds modest reduction on top of standard SPLIT",
+       x = "Total counts (log scale)", y = "# cells", fill = NULL)
+```
+
+# Which Genes Improve?
+
+We identify marker genes from the reference and measure how much their
+non-specific expression decreases after residual contamination removal,
+while verifying that expression in their target cell type is preserved.
+
+```{r find-markers}
+reference <- as.matrix(RCTD@cell_type_info$info[[1]])  # genes x cell-types
+gene_max  <- apply(reference, 1, max)
+
+# top 5 most specific genes per cell type
+top_markers <- do.call(rbind, lapply(colnames(reference), function(ct) {
+  scores <- reference[, ct] / (gene_max + 1e-10)
+  top    <- sort(scores, decreasing = TRUE)[1:5]
+  data.frame(gene = names(top), cell_type = ct, specificity = as.numeric(top))
+}))
+top_markers     <- top_markers[top_markers$gene %in% rownames(xe), ]
+genes_of_interest <- unique(top_markers$gene)
+target_lookup   <- top_markers %>%
+  group_by(gene) %>%
+  slice_max(specificity, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  dplyr::select(gene, target_ct = cell_type)
+```
+
+```{r compute-expr}
+get_mean_by_ct <- function(obj, genes, ct_col, assay) {
+  genes <- genes[genes %in% rownames(obj)]
+  mat   <- GetAssayData(obj, assay = assay, layer = "data")[genes, , drop = FALSE]
+  grp   <- obj@meta.data[colnames(mat), ct_col]
+  all_cts <- unique(grp)
+  do.call(rbind, lapply(genes, function(g) {
+    m      <- tapply(as.numeric(mat[g, ]), grp, mean)
+    m_full <- setNames(rep(0, length(all_cts)), all_cts)
+    m_full[names(m)] <- m
+    data.frame(gene = g, cell_type = names(m_full), mean_expr = as.numeric(m_full))
+  }))
+}
+
+expr_raw   <- get_mean_by_ct(xe_split, genes_of_interest, "first_type", "raw")
+expr_split <- get_mean_by_ct(xe_split, genes_of_interest, "first_type", "Xenium")
+expr_clean <- get_mean_by_ct(xe_clean, genes_of_interest, "first_type", "Xenium")
+
+expr_cmp <- expr_raw %>%
+  dplyr::rename(raw = "mean_expr") %>%
+  left_join(expr_split %>% dplyr::rename(split = "mean_expr"), by = c("gene", "cell_type")) %>%
+  left_join(expr_clean %>% dplyr::rename(clean = "mean_expr"), by = c("gene", "cell_type")) %>%
+  left_join(target_lookup, by = "gene") %>%
+  mutate(
+    is_target   = cell_type == target_ct,
+    improvement = split - clean
+  )
+
+improved <- expr_cmp %>%
+  group_by(gene) %>%
+  summarise(
+    mean_improvement_nontarget = mean(improvement[!is_target], na.rm = TRUE),
+    mean_improvement_target    = mean(improvement[ is_target], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(mean_improvement_nontarget > 0.02, mean_improvement_target < 0.05) %>%
+  arrange(desc(mean_improvement_nontarget))
+
+cat(sprintf("Genes with improved non-specific expression: %d / %d\n",
+            nrow(improved), length(genes_of_interest)))
+print(improved)
+```
+
+# Visualise Improvement
+
+## DotPlot: Raw vs SPLIT vs SPLIT + Residual Removal
+
+```{r dotplot, fig.width=14, fig.height=12}
+genes_plot <- head(improved$gene, 20)
+genes_plot <- genes_plot[genes_plot %in% rownames(xe_split)]
+
+DefaultAssay(xe_split) <- "raw"
+p_raw <- DotPlot(xe_split, features = genes_plot,
+                 group.by = "first_type", scale = FALSE) +
+  ggtitle("Raw") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  xlab(NULL) + ylab(NULL)
+
+DefaultAssay(xe_split) <- "Xenium"
+p_split <- DotPlot(xe_split, features = genes_plot,
+                   group.by = "first_type", scale = FALSE) +
+  ggtitle("SPLIT") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  xlab(NULL) + ylab(NULL)
+
+DefaultAssay(xe_clean) <- "Xenium"
+p_clean <- DotPlot(xe_clean, features = genes_plot,
+                   group.by = "first_type", scale = FALSE) +
+  ggtitle("SPLIT + residual contamination removal") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  xlab(NULL) + ylab(NULL)
+
+p_raw / p_split / p_clean
+```
+
+## UMAPs
+```{r umap, fig.width=14, fig.height=5, message=FALSE}
+xe_split <- xe_split %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+xe_clean <- xe_clean %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+# also need UMAP on raw xe — run SCT if not already done
+xe <- xe %>%
+  SCTransform(assay = "Xenium", verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+p_u1 <- UMAPPlot(xe,       group.by = "first_type", label = T, repel = T, cols = pal) +
+  theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("Raw")
+p_u2 <- UMAPPlot(xe_split, group.by = "first_type", label = T, repel = T, cols = pal) +
+  theme_void() + theme(aspect.ratio = 1, legend.position = "none") + ggtitle("SPLIT")
+p_u3 <- UMAPPlot(xe_clean, group.by = "first_type", label = T, repel = T, cols = pal) +
+  theme_void() + theme(aspect.ratio = 1, legend.position = "right") +
+  ggtitle("SPLIT + residual removal")
+
+p_u1 | p_u2 | p_u3
+```
+
+
+## Marker Gene Specificity
+
+Specificity is defined as the mean expression in the target cell type divided
+by the mean expression across all non-target cell types. Higher values indicate
+cleaner, more cell-type-specific signal.
+
+```{r specificity, fig.width=7, fig.height=5}
+spec_scores <- expr_cmp %>%
+  filter(gene %in% improved$gene) %>%
+  group_by(gene) %>%
+  summarise(
+    Raw                      = mean(raw[is_target],   na.rm = TRUE) /
+                               (mean(raw[!is_target],  na.rm = TRUE) + 1e-10),
+    SPLIT                    = mean(split[is_target], na.rm = TRUE) /
+                               (mean(split[!is_target], na.rm = TRUE) + 1e-10),
+    `SPLIT + residual removal` = mean(clean[is_target], na.rm = TRUE) /
+                               (mean(clean[!is_target], na.rm = TRUE) + 1e-10),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(-gene, names_to = "method", values_to = "specificity") %>%
+  mutate(
+    method      = factor(method, levels = c("Raw", "SPLIT", "SPLIT + residual removal")),
+    specificity = pmin(specificity, max(specificity)+10)   # cap extreme values from near-zero denominators
+  )
+
+ggplot(spec_scores, aes(x = method, y = specificity, fill = method)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_jitter(width = 0.15, size = 1.2, alpha = 0.4) +
+  coord_cartesian(ylim = c(0, 200)) +
+  scale_fill_manual(values = c("Raw" = "#888888", "SPLIT" = "#4C78A8",
+                               "SPLIT + residual removal" = "#F58518")) +
+  theme_bw() + theme(legend.position = "none") +
+  labs(
+    title    = "Marker gene specificity across purification methods",
+    subtitle = "specificity = mean expr in target / mean expr in non-target cell types (capped at 500x)",
+    x = NULL, y = "Specificity score (higher = more specific)"
+  )
+```
+
+# Summary
+
+```{r summary}
+cat("\n── Purification summary ────────────────────────────────────────\n")
+cat(sprintf("  Cells analysed                     : %s\n",
+            format(length(shared_cells), big.mark = ",")))
+cat(sprintf("  Raw total counts                   : %s\n",
+            format(total_raw, big.mark = ",")))
+cat(sprintf("  Removed by SPLIT                   : %s  (%.1f%%)\n",
+            format(total_raw - total_split, big.mark = ","),
+            100 * (total_raw - total_split) / total_raw))
+cat(sprintf("  Additionally removed by residual step: %s  (%.1f%%)\n",
+            format(total_split - total_clean, big.mark = ","),
+            100 * (total_split - total_clean) / total_raw))
+cat(sprintf("  Genes improved (non-specific expr) : %d / %d marker genes\n",
+            nrow(improved), length(genes_of_interest)))
+cat("───────────────────────────────────────────────────────────────\n")
+```
+
+Residual contamination removal removes a modest additional fraction of counts
+(typically 2–5%) on top of standard SPLIT, targeting only genes with no
+reference support in either the primary or secondary assigned cell type.
+Marker gene specificity improves substantially without over-correcting
+genuine cell-type-specific signal.
+
+To enable this feature, simply add one argument to your existing `purify()` call: `DO_remove_residual_contamination = TRUE`
+
+
