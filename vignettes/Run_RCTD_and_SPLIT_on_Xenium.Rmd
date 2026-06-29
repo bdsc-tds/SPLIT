@@ -1,23 +1,30 @@
 ---
 title: "RCTD Annotation and SPLIT Purification for Xenium Sample"
 output: 
-  rmarkdown::github_document:
+  rmarkdown::html_document:
     toc: true
     toc_depth: 2
+    toc_float: true
+    theme: flatly
+    self_contained: true
 vignette: >
-  %\VignetteIndexEntry{Run RCTD and SPLIT on Xenium}
+  %\VignetteIndexEntry{Residual Contamination Removal in SPLIT}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message   = FALSE,
+  warning   = FALSE,
+  comment   = NA,
+  fig.align = "center"
+)
+```
+
 # Introduction
 
 This vignette demonstrates how to annotate Xenium spatial transcriptomics data using RCTD, followed by purification with SPLIT.
-
-⚠️ **Important Notice**
-
-SPLIT currently requires **doublet-mode** RCTD results generated with the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or the faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD).  
-🚧 **Compatibility with the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html) of spacexr is under development.**
 
 # Overview
 
@@ -292,6 +299,8 @@ xe_purified <- CreateSeuratObject(
   meta.data = res_split$cell_meta,
   assay = "Xenium"
 )
+
+xe_purified <- AddMetaData(xe_purified, xe@meta.data %>% select(spot_class))
 
 # Optional: Filter, normalize and visualize
 xe_purified <- subset(xe_purified, subset = nCount_Xenium > 5)
