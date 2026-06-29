@@ -1,30 +1,32 @@
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/BDSC-tds/SPLIT/actions/workflows/R-CMD-check.yaml)
 [![DOI](https://img.shields.io/badge/DOI-10.1038%2Fs41592--026--03089--8-brightgreen)](https://doi.org/10.1038/s41592-026-03089-8)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.2.0)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.3.0)
 <!-- badges: end -->
 
 # SPLIT: Spatial Purification of Layered Intracellular Transcripts
 
 ![](vignettes/plots/SPLIT_schema.png)
 
-🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.2.0](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.2.0)).
+🚧 **This package is under active development.** ❗ Make sure you use the latest version (i.e., [v0.3.0](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.3.0)).
 
 ⚡ Use the **Quick Start** guide below to get up and running quickly.
 
-🆕🔥 A **comprehensive tutorial** of running SPLIT on **ATERA** (full-transcriptome spatial) data and its comparison to **Xenium** is available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/ATERA_vs_Xenium_comparison_plus_SPLIT.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/ATERA_vs_Xenium_comparison_plus_SPLIT.html) (SPLIT v0.2.0 runs in minutes on full-transcriptome data). ❗ Requires [SPLIT v0.2.0](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.2.0) or later.
+🆕🔥 A **comprehensive tutorial** of running SPLIT on **ATERA** (full-transcriptome spatial) data and its comparison to **Xenium** is available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/ATERA_vs_Xenium_comparison_plus_SPLIT.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/ATERA_vs_Xenium_comparison_plus_SPLIT.html) (SPLIT v0.3.0 runs in minutes on full-transcriptome data). ❗ Requires [SPLIT v0.3.0](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.3.0) or later.
 
 📖 A **comprehensive tutorial** of running SPLIT on Xenium data is available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_Xenium.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_Xenium.html) (<30 min total runtime on a standard PC, incl. 4 min for SPLIT with a peak memory usage of ~21 GB).
 
 🆕🔥 A **comprehensive tutorial** of running SPLIT on **VisiumHD** data is available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Run_RCTD_and_SPLIT_on_VisiumHD.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Run_RCTD_and_SPLIT_on_VisiumHD.html) (~30 min total runtime on a standard PC, incl. 10 min for SPLIT with a peak memory usage of ~52 GB). ❗ Requires [SPLIT v0.1.2](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.1.2) or later.
 
+🆕 A focused tutorial on **residual contamination removal** — a new optional purification step that removes non-specific signal not resolved by standard SPLIT — is available as [.Rmd](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Residual_Contamination_Removal.Rmd) and [.html](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Residual_Contamination_Removal.html). ❗ Requires [SPLIT v0.3.0](https://github.com/bdsc-tds/SPLIT/releases/tag/v0.3.0) or later.
 
 ------------------------------------------------------------------------
 
-## What's new in v0.2.0
+## What's new in SPLIT
 
 - **Annotation-method agnostic**: SPLIT no longer depends on RCTD output. It now accepts any deconvolution result — all you need is a cells x cell-types weight matrix, a genes x cell-types reference, and optionally a primary cell-type vector (otherwise inferred as the argmax of the weights).
 - **Full-transcriptome compatible**: SPLIT now scales to large full-transcriptome platforms such as **ATERA** (~18,000 genes) and runs to completion in minutes.
+- **Residual contamination removal**: a new optional flag `DO_remove_residual_contamination = TRUE` in `purify()` zeros out genes with no reference support in any of the assigned cell types — signal that proportional redistribution alone cannot remove. Typically removes an additional 2–5% of counts on top of standard SPLIT, with a measurable improvement in marker gene specificity. See the [dedicated vignette](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Residual_Contamination_Removal.Rmd) for a full comparison.
 - **VisiumHD and Xenium support** remains fully intact and backward compatible.
 - **Faster and leaner**: improved chunked sparse-matrix computation reduces peak memory usage and runtime across all platforms.
 
@@ -55,8 +57,8 @@ RCTD <- SPLIT::run_post_process_RCTD(RCTD)
 
 # Run SPLIT purification
 res_split <- SPLIT::purify(
-  counts = GetAssayData(xe, assay = "Xenium", layer = "counts"),
-  rctd   = RCTD,
+  counts             = GetAssayData(xe, assay = "Xenium", layer = "counts"),
+  rctd               = RCTD,
   DO_purify_singlets = TRUE
 )
 
@@ -78,6 +80,25 @@ UMAPPlot(xe_purified, group.by = "first_type", label = TRUE, repel = TRUE) +
   theme(aspect.ratio = 1)
 ```
 
+### With residual contamination removal (v0.3.0+)
+
+Standard SPLIT removes contamination from cell types represented in the
+deconvolution model. To additionally remove non-specific signal from genes
+not supported by any assigned cell type, set `DO_remove_residual_contamination = TRUE`.
+The specificity threshold is automatically derived from the reference — no
+manual tuning required.
+
+```r
+res_split <- SPLIT::purify(
+  counts                           = GetAssayData(xe, assay = "Xenium", layer = "counts"),
+  rctd                             = RCTD,
+  DO_purify_singlets               = TRUE,
+  DO_remove_residual_contamination = TRUE   # remove residual non-specific signal
+)
+```
+
+See the [residual contamination removal vignette](https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Residual_Contamination_Removal.Rmd) for a full comparison against standard SPLIT.
+
 ### Annotation-method agnostic (v0.2.0+)
 
 Provide deconvolution weights, a reference matrix, and primary cell-type labels from any annotation tool:
@@ -92,11 +113,12 @@ new_input <- SPLIT::convert_rctd_result_to_purify_input(rctd = RCTD)
 
 # Run SPLIT purification — returns a SingleCellExperiment object
 res_split <- SPLIT::purify(
-  counts                = GetAssayData(xe, assay = "Xenium", layer = "counts"),
-  reference             = t(new_input$reference),          # genes x cell-types
-  primary_cell_type     = new_input$primary_cell_type,     # named character vector
-  deconvolution_weights = new_input$deconvolution_weights, # cells x cell-types
-  DO_output_sce         = TRUE   # set FALSE to get a plain list instead
+  counts                           = GetAssayData(xe, assay = "Xenium", layer = "counts"),
+  reference                        = t(new_input$reference),          # genes x cell-types
+  primary_cell_type                = new_input$primary_cell_type,     # named character vector
+  deconvolution_weights            = new_input$deconvolution_weights, # cells x cell-types
+  DO_remove_residual_contamination = TRUE,  # optional: remove residual contamination
+  DO_output_sce                    = TRUE   # set FALSE to get a plain list instead
 )
 
 # Create a purified Seurat object from the SCE output

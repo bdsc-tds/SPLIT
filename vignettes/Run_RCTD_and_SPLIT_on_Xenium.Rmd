@@ -1,23 +1,30 @@
 ---
 title: "RCTD Annotation and SPLIT Purification for Xenium Sample"
 output: 
-  rmarkdown::github_document:
+  rmarkdown::html_document:
     toc: true
     toc_depth: 2
+    toc_float: true
+    theme: flatly
+    self_contained: true
 vignette: >
-  %\VignetteIndexEntry{Run RCTD and SPLIT on Xenium}
+  %\VignetteIndexEntry{Residual Contamination Removal in SPLIT}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message   = FALSE,
+  warning   = FALSE,
+  comment   = NA,
+  fig.align = "center"
+)
+```
+
 # Introduction
 
 This vignette demonstrates how to annotate Xenium spatial transcriptomics data using RCTD, followed by purification with SPLIT.
-
-⚠️ **Important Notice**
-
-SPLIT currently requires **doublet-mode** RCTD results generated with the original [spacexr GitHub repository](https://github.com/dmcable/spacexr) or the faster [HD fork](https://github.com/jpromeror/spacexr/tree/HD).  
-🚧 **Compatibility with the newly released [Bioconductor version](https://www.bioconductor.org/packages/release/bioc/html/spacexr.html) of spacexr is under development.**
 
 # Overview
 
@@ -183,6 +190,18 @@ if(DO_subset_xe){
 # RCDT annotation
 Run RCTD Annotation on Xenium
 Running RCTD on large datasets can be computationally intensive and may take several hours. To streamline the workflow, we provide the full code for reproducibility. However, we recommend loading a pre-computed RCTD object by setting `DO_run_RCTD <- FALSE`.
+
+> 📝 **Note:** SPLIT does not depend on RCTD specifically — it accepts
+> deconvolution results from any tool via a cells × cell-types weight matrix
+> and a genes × cell-types reference matrix. See `?purify` and the
+> [annotation-method agnostic quick start](https://github.com/bdsc-tds/SPLIT#annotation-method-agnostic-v030)
+> for details.
+>
+> A significantly faster Python implementation of RCTD (py-RCTD)[https://github.com/p-gueguen/rctd-py] is available
+> for large datasets. SPLIT provides a convenience wrapper
+> `reconstruct_rctd_from_rctdpy()` to load py-RCTD outputs directly into
+> `purify()`. See `?reconstruct_rctd_from_rctdpy` for details.
+
 ```{r rctd}
 DO_run_RCTC <- FALSE # FALSE to load pre-computed results
 
@@ -270,7 +289,8 @@ This section runs the default SPLIT purification and visualizes purified data.
 res_split <- SPLIT::purify(
   counts = GetAssayData(xe, assay = 'Xenium', layer = 'counts'), # or any gene x cells counts matrix
   rctd = RCTD,
-  DO_purify_singlets = TRUE # Optional. If TRUE, singlets with an available secondary type are purified the same way as doublets_certain; otherwise, left unchanged.
+  DO_purify_singlets = TRUE, # Recommended
+  DO_remove_residual_contamination = TRUE # New 🚀 see https://github.com/bdsc-tds/SPLIT/blob/main/vignettes/Residual_Contamination_Removal.Rmd
   )
 
 # Create a purified Seurat object
@@ -279,6 +299,8 @@ xe_purified <- CreateSeuratObject(
   meta.data = res_split$cell_meta,
   assay = "Xenium"
 )
+
+xe_purified <- AddMetaData(xe_purified, xe@meta.data %>% select(spot_class))
 
 # Optional: Filter, normalize and visualize
 xe_purified <- subset(xe_purified, subset = nCount_Xenium > 5)

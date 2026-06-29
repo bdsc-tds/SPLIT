@@ -85,15 +85,17 @@
 #' @export
 
 rctd_free_purify <- function(
-    counts,                 # genes x cells
-    deconvolution_weights,  # cells x weights
-    reference,              # cell types x genes
-    primary_cell_type = NULL, # vector
-    cells_to_purify = NULL, # vector
+    counts,
+    deconvolution_weights,
+    reference,
+    primary_cell_type = NULL,
+    cells_to_purify = NULL,
     DO_run_in_chunks = TRUE,
     chunk_size = 50000,
     DO_require_sumup_to_one = TRUE,
     DO_output_sce = FALSE,
+    DO_remove_residual_contamination = FALSE,          # ← new
+    belonging_threshold = NULL,         # ← new (NULL = auto)
     ...
 ){
 
@@ -149,6 +151,32 @@ rctd_free_purify <- function(
   }
 
   reference <- reference[cell_types, shared_genes]
+
+  # --- Clean reference: zero out lowly expressed genes per cell type ----------
+  if (DO_remove_residual_contamination) {
+
+    # --- Auto-tune belonging_threshold if not provided -------------------------
+    if (DO_remove_residual_contamination && is.null(belonging_threshold)) {
+      ratios <- apply(reference[, shared_genes], 2, function(x) {
+        if (max(x) == 0) return(0)
+        min(x[x > 0]) / max(x)
+      })
+      ratios <- ratios[ratios > 0]
+      belonging_threshold <- unname(quantile(ratios, 0.75))
+      message(sprintf("  Auto belonging_threshold: %.4f (75th pct of min/max ratio)",
+                      belonging_threshold))
+    }
+    message("Cleaning reference profiles ...")
+    gene_max <- apply(reference, 2, max)   # max per gene across cell types (note: ref is cell types x genes)
+    thr      <- belonging_threshold * gene_max
+    thr_mat  <- matrix(thr, nrow = nrow(reference), ncol = ncol(reference), byrow = TRUE)
+    ref_original <- reference
+    reference[reference < thr_mat] <- 0
+
+    profile_removed <- 1 - rowSums(reference) / rowSums(ref_original)
+    message("  Fraction of profile removed per cell type:")
+    print(round(profile_removed, 3))
+  }
 
   counts <- Matrix::Matrix(counts, sparse = TRUE)
   deconvolution_weights <- Matrix::Matrix(deconvolution_weights, sparse = TRUE)
@@ -212,8 +240,6 @@ rctd_free_purify <- function(
 
   # --- Precompute helper vectors ---------------------------------------------
   primary_type_weight <- deconvolution_weights[cbind(shared_cells, primary_cell_type)]
-  n_celltypes_per_cell <- Matrix::rowSums(deconvolution_weights[shared_cells, ] > 0)
-  epsilon <- 1e-10
 
   # --- Chunked or full computation -------------------------------------------
   if (DO_run_in_chunks) {
@@ -234,11 +260,18 @@ rctd_free_purify <- function(
 
       # --- Compute block numerator & denominator -----------------------------
       block_denominator <- as.matrix(deconvolution_weights[cells_in_block, , drop = FALSE]) %*%
-        reference + epsilon
+        reference
 
       block_numerator <- primary_type_weight[idx] *
-        reference[primary_cell_type[idx], , drop = FALSE] +
-        epsilon / n_celltypes_per_cell[idx]
+        reference[primary_cell_type[idx], , drop = FALSE]
+
+      # --- Zero out orphan genes: ref1 = 0 means gene has no home in primary type
+      ref1_zero <- t(reference[primary_cell_type[idx], , drop = FALSE]) == 0  # genes x cells
+      block_numerator[t(ref1_zero)] <- 0
+
+      # --- Safe division: denominator is 0 only when all refs are 0 (orphan case)
+      # numerator is already 0 there, so set denominator to 1 to avoid 0/0 = NaN
+      block_denominator[block_denominator == 0] <- 1
 
       # --- Correct counts ----------------------------------------------------
       block_corrected <- t(block_numerator / block_denominator) *
@@ -268,9 +301,14 @@ rctd_free_purify <- function(
     )
 
   } else {
-    denominator <- deconvolution_weights[shared_cells, cell_types] %*% reference + epsilon
-    numerator <- primary_type_weight * reference[primary_cell_type[shared_cells], ] +
-      epsilon / n_celltypes_per_cell
+    denominator <- deconvolution_weights[shared_cells, cell_types] %*% reference
+    numerator   <- primary_type_weight * reference[primary_cell_type[shared_cells], ]
+
+    # zero out orphan genes
+    ref1_zero <- t(reference[primary_cell_type[shared_cells], ]) == 0
+    numerator[t(ref1_zero)] <- 0
+    denominator[denominator == 0] <- 1
+
     purified_counts <- t(numerator / denominator) * counts
     colnames(purified_counts) <- shared_cells
   }
@@ -343,6 +381,19 @@ rctd_free_purify <- function(
 #'   (required for RCTD-free mode).
 #' @param reference Optional reference matrix (genes x cell types),
 #'   required for RCTD-free mode.
+#' @param DO_remove_residual_contamination Logical; if `TRUE`, removes residual
+#'   contamination from genes not specific to either the primary or secondary
+#'   assigned cell type. These genes cannot be resolved by SPLIT's standard
+#'   proportional redistribution and represent non-specific background signal
+#'   remaining after purification. Default: `FALSE` (backward compatible).
+#' @param belonging_threshold Numeric in (0, 1); a gene is considered expressed
+#'   in a cell type if its reference expression exceeds
+#'   `belonging_threshold * max(gene expression across all cell types)`.
+#'   Genes below this threshold in both assigned cell types are zeroed out when
+#'   `DO_remove_residual_contamination = TRUE`.
+#'   If `NULL` (default), the threshold is automatically derived from the
+#'   reference as the 75th percentile of the minimum-to-maximum expression
+#'   ratio across all genes, requiring no manual tuning.
 #' @param ... Additional arguments passed to the chosen purify function.
 #'
 #' @return
@@ -352,7 +403,8 @@ rctd_free_purify <- function(
 #' @examples
 #' purify(counts = counts, rctd = my_rctd)
 #' purify(counts = counts, primary_cell_type = ptype,
-#'         deconvolution_weights = weights, reference = ref)
+#'        deconvolution_weights = weights, reference = ref,
+#'        DO_remove_residual_contamination = TRUE)
 #'
 #' @export
 
@@ -361,6 +413,8 @@ purify <- function(counts,
                    primary_cell_type = NULL,
                    deconvolution_weights = NULL,
                    reference = NULL,
+                   DO_remove_residual_contamination = FALSE,
+                   belonging_threshold = NULL,
                    ...) {
 
   # --- Transform rctd to new input ofrmat ------------------------------------------
@@ -400,6 +454,8 @@ purify <- function(counts,
       primary_cell_type = rctd$primary_cell_type,
       deconvolution_weights = rctd$deconvolution_weights,
       reference = Matrix::t(rctd$reference),
+      DO_remove_residual_contamination = DO_remove_residual_contamination,
+      belonging_threshold = belonging_threshold,
       ...
     ))
   }
@@ -424,6 +480,8 @@ purify <- function(counts,
     primary_cell_type = primary_cell_type,
     deconvolution_weights = deconvolution_weights,
     reference = reference,
+    DO_remove_residual_contamination = DO_remove_residual_contamination,
+    belonging_threshold = belonging_threshold,
     ...
   ))
 }

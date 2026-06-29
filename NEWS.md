@@ -1,3 +1,26 @@
+# SPLIT 0.3.0
+
+- **Residual contamination removal**: new optional flag `DO_remove_residual_contamination = TRUE`
+  in `purify()` zeros out genes with no reference support in any of the cell types assigned
+  to a given cell — signal that proportional redistribution alone cannot remove. The reference
+  specificity threshold is automatically derived from the reference distribution, requiring no
+  manual tuning. Typically removes an additional 2–5% of counts on top of standard SPLIT, with
+  a measurable improvement in marker gene specificity. See the dedicated
+  [vignette](https://github.com/bdsc-tds/SPLIT/blob/main/doc/Residual_Contamination_Removal.html)
+  for a full comparison against standard SPLIT.
+- Remove `epsilon` from the purification formula in `rctd_free_purify()`: genes with no
+  reference support in the primary cell type are now explicitly zeroed rather than receiving
+  a small residual value proportional to epsilon, giving cleaner output when
+  `DO_remove_residual_contamination = FALSE` as well.
+- Update vignette `Run_RCTD_and_SPLIT_on_Xenium.Rmd` with notes on SPLIT's annotation-method
+  agnostic interface and the availability of py-RCTD as a faster deconvolution backend.
+- Add new vignette `Residual_Contamination_Removal.Rmd` showcasing the new feature with a
+  quantitative comparison of Raw, SPLIT, and SPLIT + residual contamination removal on a
+  public Xenium breast cancer dataset.
+
+All changes are backward compatible. `DO_remove_residual_contamination` defaults to `FALSE`,
+so existing `purify()` calls are unaffected.
+
 # SPLIT 0.2.3
 
 - fix a silent data corruption bug in `convert_rctd_result_to_purify_input()`
